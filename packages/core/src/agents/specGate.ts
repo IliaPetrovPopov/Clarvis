@@ -24,6 +24,7 @@ export type GateCode =
   | "swallowed-failure"
   | "forbidden-host"
   | "unreported-gap"
+  | "reimplemented-actionability"
   | "conditional-assertion";
 
 export interface GateViolation {
@@ -101,6 +102,42 @@ const CONDITIONAL = /\bif\s*\([\s\S]{0,200}?\)\s*\{[\s\S]{0,300}?\bexpect\s*\(/g
  */
 const ADMITS_GAP =
   /\b(see\s+`?untested`?|left\s+out|not\s+tested|could\s+not\s+test|cannot\s+be\s+tested|omitted|out\s+of\s+scope)\b/i;
+
+/**
+ * A hand-rolled version of something Playwright already does.
+ *
+ * `elementFromPoint` against a `boundingBox()` is the specific one that cost a
+ * run: box coordinates are page-relative, `elementFromPoint` takes
+ * viewport-relative, the check runs once against a page that may still be
+ * settling, and it reported a working login form as covered on a page where
+ * `click({ trial: true })` succeeded. Six failures, all about the test.
+ *
+ * A prompt asking for restraint is not enough here, because the reimplementation
+ * looks more rigorous than the built-in and an author reaches for it precisely
+ * when being careful.
+ */
+const REIMPLEMENTED = [
+  {
+    re: /elementFromPoint\s*\(/,
+    what: "elementFromPoint",
+    instead: "expect(locator).toBeVisible() and click({ trial: true }) - both handle overlap already",
+  },
+  {
+    re: /\.offsetParent\s*[=!]==?\s*null/,
+    what: "an offsetParent null check",
+    instead: "expect(locator).toBeVisible(), which knows about every way an element can be hidden",
+  },
+  {
+    re: /getComputedStyle\([^)]*\)\s*\.\s*(visibility|display|opacity|pointerEvents)/,
+    what: "a computed-style visibility check",
+    instead: "expect(locator).toBeVisible()",
+  },
+  {
+    re: /\bz-?index\b[\s\S]{0,40}(>|<|compare)/i,
+    what: "a z-index comparison",
+    instead: "click({ trial: true }), which fails if anything intercepts the pointer",
+  },
+];
 
 export function gateSpec(
   source: string,
@@ -211,6 +248,20 @@ export function gateSpec(
       line: lineOf(code, at),
       remedy:
         "Use relative paths so requests go to the configured baseURL. Never name a host in a spec.",
+    });
+  }
+
+  for (const { re, what, instead } of REIMPLEMENTED) {
+    const match = re.exec(code);
+    if (!match) continue;
+    violations.push({
+      code: "reimplemented-actionability",
+      detail: `Uses ${what} to decide whether a control is usable.`,
+      line: lineOf(code, match.index),
+      remedy:
+        `Playwright already answers this, correctly and with retries. Use ${instead}. ` +
+        `A hand-written check runs once, against a page that may still be settling, and reports ` +
+        `a working control as broken.`,
     });
   }
 

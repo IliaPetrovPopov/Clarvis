@@ -148,3 +148,55 @@ test("rejects a forged session", async ({ request }) => {
   // Reported honestly, the same file is fine. The gap is not the problem.
   assert.equal(gateSpec(source, { reportedUntested: 1 }).ok, true);
 });
+
+test("a hand-rolled actionability check is refused, with the built-in named", () => {
+  // The exact spec that failed six times on a working page: boundingBox gives
+  // page coordinates, elementFromPoint takes viewport coordinates, and the
+  // check runs once against a page that may still be settling.
+  const source = `${HEAD}
+test("controls stay clickable", async ({ page }) => {
+  const box = await page.getByLabel("Email").boundingBox();
+  const onTop = await page.getByLabel("Email").evaluate((el, b) => {
+    const top = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+    return !!top && el.contains(top);
+  }, box);
+  expect(onTop, "nothing else may cover the control").toBe(true);
+});`;
+
+  const result = gateSpec(source);
+  const violation = result.violations.find((v) => v.code === "reimplemented-actionability");
+
+  assert.ok(violation, "the reimplementation must be caught before it runs");
+  assert.match(violation!.detail, /elementFromPoint/);
+  // The remedy has to name what to use instead, or the retry repeats the mistake.
+  assert.match(violation!.remedy, /click\(\{ trial: true \}\)/);
+});
+
+test("other reimplementations of visibility are caught too", () => {
+  const cases: Array<[string, RegExp]> = [
+    ["const hidden = el.offsetParent === null; expect(hidden).toBe(false);", /offsetParent/],
+    ['const s = getComputedStyle(el).visibility; expect(s).toBe("visible");', /computed-style/],
+  ];
+
+  for (const [line, expected] of cases) {
+    const result = gateSpec(`${HEAD}test("x", async ({ page }) => { ${line} });`);
+    const violation = result.violations.find((v) => v.code === "reimplemented-actionability");
+    assert.ok(violation, `should catch: ${line}`);
+    assert.match(violation!.detail, expected);
+  }
+});
+
+test("using Playwright's own checks passes cleanly", () => {
+  // The whole point: the correct spelling must not be caught by the rule that
+  // exists to encourage it.
+  const result = gateSpec(`${HEAD}
+test("controls stay clickable at every viewport", async ({ page }) => {
+  await page.goto("/login");
+  const email = page.getByLabel("Email");
+  await expect(email).toBeVisible();
+  await expect(email).toBeEnabled();
+  await email.click({ trial: true });
+});`);
+
+  assert.equal(result.ok, true);
+});

@@ -350,6 +350,25 @@ Rules:
 - Assert on what the application does, not on what it displays, wherever the two
   can differ. A route that answers 200 with its contents hidden has not denied
   anything, and a visibility-only assertion reports it as correct.
+- Use Playwright's own actionability checks. Never reimplement them.
+  \`expect(locator).toBeVisible()\`, \`toBeEnabled()\`, \`toBeFocused()\` and
+  \`click({ trial: true })\` already handle visibility, stability, overlap,
+  scrolling and pointer-interception, and they retry while the page settles.
+  A hand-written equivalent - reading boundingBox() and calling
+  elementFromPoint(), comparing offsetParent, measuring z-index - is a
+  reimplementation that runs once, against coordinates in the wrong space, on a
+  page that may still be moving. This is not hypothetical: one written exactly
+  that way reported a login form as covered on a page where
+  \`click({ trial: true })\` succeeded. It failed six times, on a working page,
+  and every failure was about the test rather than the product.
+  If you want to know whether a control can be used, ask Playwright to use it.
+- A disabled control is usually a decision, not a defect. Submit buttons are
+  routinely disabled until a form is valid, and asserting one is clickable in
+  its initial state tests the application's intent rather than its correctness.
+  Before asserting a control is usable, put it in the state where it is meant to
+  be usable - fill the form first, then assert. If you cannot reach that state,
+  assert what IS true (that it is disabled while the form is empty, and enabled
+  once filled), which is a real behaviour worth protecting.
 - If you cannot test a requirement, put it in "untested" with the reason. A gap
   reported honestly is worth more than a green test that asserts nothing.`.trim(),
   },
