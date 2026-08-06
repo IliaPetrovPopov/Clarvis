@@ -1,0 +1,450 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  applyLedger,
+  describeLedger,
+  dismiss,
+  emptyLedger,
+  fingerprint,
+  recordRun,
+  reopen,
+} from "../src/ledger.ts";
+import { classify, findingsFromDifferential, outcomesFromReport, pickBasePort, withPort } from "../src/eval/differential.ts";
+import { candidates, promote, promotedName, promotionHeader } from "../src/promote.ts";
+import { deriveTaxonomy, slugKey, MIN_OBSERVATIONS } from "../src/agents/taxonomy.ts";
+import { Budget } from "../src/agents/budget.ts";
+import { decideGuard } from "../src/guard.ts";
+import type { AgentRunner } from "../src/agents/runtime.ts";
+import type { BugFix } from "../src/eval/history.ts";
+import type { Finding, Profile, Run } from "../src/types.ts";
+
+const finding = (over: Partial<Finding> & Pick<Finding, "id" | "title">): Finding => ({
+  axis: "rbac-scope",
+  severity: "high",
+  tier: "CONFIRMED",
+  oracle: { type: "code-intent" },
+  expected: "",
+  actual: "",
+  evidence: { specFile: "rbac-scope-1.spec.ts" },
+  ...over,
+});
+
+const mkRun = (findings: Finding[], axes = ["rbac-scope"], runId = "r1"): Run => ({
+  schemaVersion: 1,
+  runId,
+  startedAt: new Date().toISOString(),
+  status: "findings",
+  guard: { mode: "read-only", target: "localhost:1" },
+  axes: axes.map((key) => ({ key, status: "done" as const })),
+  findings,
+});
+
+/* ---------------------------------------------------------------- ledger */
+
+test("a finding keeps its identity when the wording drifts", () => {
+  // Titles are model-authored and move between runs. Identity keys on the axis
+  // and the route instead, which do not.
+  const a = fingerprint({ axis: "rbac-scope", title: "viewer must not reach /admin", route: "/admin", role: "viewer" });
+  const b = fingerprint({
+    axis: "rbac-scope",
+    title: "the /admin route must not be reachable by a viewer",
+    route: "/admin",
+    role: "viewer",
+  });
+  assert.equal(a, b);
+});
+
+test("with no route or role, identity falls back to stemmed title words", async () => {
+  // The worst case for merging, so the title is allowed to matter here.
+  const { titleTokens } = await import("../src/ledger.ts");
+  // The stemmer is crude by design - "missing" reduces to "mis". What matters
+  // is that it reduces the same way every time, not that it is a real word.
+  assert.deepEqual(titleTokens("the session cookie is missing HttpOnly"), ["cookie", "httponly", "mis", "session"]);
+
+  const a = fingerprint({ axis: "adversarial", title: "session cookie missing HttpOnly" });
+  const b = fingerprint({ axis: "adversarial", title: "the session cookie is missing HttpOnly" });
+  assert.equal(a, b, "an inflection or an article must not split an identity");
+
+  const other = fingerprint({ axis: "adversarial", title: "note titles are rendered unescaped" });
+  assert.notEqual(a, other);
+});
+
+test("different behaviours on the same route stay distinct", () => {
+  // Over-merging is the worse failure: it hides a second bug behind the first.
+  const rbac = fingerprint({ axis: "rbac-scope", title: "viewer reaches admin data", route: "/admin" });
+  const i18n = fingerprint({ axis: "i18n-rtl", title: "arabic locale untranslated error", route: "/admin" });
+  assert.notEqual(rbac, i18n);
+});
+
+test("a dismissed finding is suppressed and counted, never silently dropped", () => {
+  const f = finding({ id: "1", title: "cookie missing HttpOnly", axis: "adversarial" });
+  let ledger = recordRun(emptyLedger(), mkRun([f], ["adversarial"]));
+  const fp = fingerprint(f);
+
+  const dismissed = dismiss(ledger, fp, { note: "accepted risk, behind a VPN", by: "reviewer" });
+  assert.equal(dismissed.error, undefined);
+  ledger = dismissed.ledger;
+
+  const applied = applyLedger([f], ledger);
+  assert.deepEqual(applied.reported, []);
+  assert.equal(applied.suppressed.length, 1);
+  assert.equal(applied.suppressed[0].entry.note, "accepted risk, behind a VPN");
+  // The run must say so. A quieter report is exactly what this product exists
+  // to prevent.
+  assert.ok(applied.notes.some((n) => /suppressed by earlier dismissals/.test(n)));
+});
+
+test("a dismissal needs a reason", () => {
+  const ledger = recordRun(emptyLedger(), mkRun([finding({ id: "1", title: "x" })]));
+  const fp = Object.keys(ledger.entries)[0];
+  const result = dismiss(ledger, fp, { note: "   ", by: "someone" });
+  assert.match(result.error!, /needs a reason/);
+});
+
+test("an ambiguous fingerprint prefix is refused rather than guessed", () => {
+  const ledger = recordRun(
+    emptyLedger(),
+    mkRun([finding({ id: "1", title: "alpha thing" }), finding({ id: "2", title: "beta other" })]),
+  );
+  const result = dismiss(ledger, "", { note: "x", by: "y" });
+  assert.match(result.error!, /matches 2 findings/);
+});
+
+test("a dismissed finding stays dismissed when it reappears", () => {
+  // That is the entire point of dismissing it.
+  const f = finding({ id: "1", title: "known issue" });
+  let ledger = recordRun(emptyLedger(), mkRun([f]));
+  const fp = fingerprint(f);
+  ledger = dismiss(ledger, fp, { note: "wont fix", by: "me" }).ledger;
+
+  ledger = recordRun(ledger, mkRun([f], ["rbac-scope"], "r2"));
+  assert.equal(ledger.entries[fp].status, "dismissed");
+});
+
+test("a finding is only called fixed when the axis that would find it ran", () => {
+  const f = finding({ id: "1", title: "the bug" });
+  const fp = fingerprint(f);
+  let ledger = recordRun(emptyLedger(), mkRun([f]));
+
+  // Axis did not run: absence tells us nothing, so nothing changes.
+  ledger = recordRun(ledger, mkRun([], ["i18n-rtl"], "r2"));
+  assert.equal(ledger.entries[fp].absentIn, 0);
+  assert.equal(ledger.entries[fp].status, "open");
+
+  // Axis ran twice without it: now the claim is earned.
+  ledger = recordRun(ledger, mkRun([], ["rbac-scope"], "r3"));
+  assert.equal(ledger.entries[fp].status, "flaky");
+  ledger = recordRun(ledger, mkRun([], ["rbac-scope"], "r4"));
+  assert.equal(ledger.entries[fp].status, "fixed");
+});
+
+test("reopening clears the dismissal", () => {
+  const f = finding({ id: "1", title: "x" });
+  let ledger = recordRun(emptyLedger(), mkRun([f]));
+  const fp = fingerprint(f);
+  ledger = dismiss(ledger, fp, { note: "n", by: "b" }).ledger;
+  ledger = reopen(ledger, fp).ledger;
+
+  assert.equal(ledger.entries[fp].status, "open");
+  assert.equal(ledger.entries[fp].note, undefined);
+});
+
+test("new and recurring findings are separated, because they need different attention", () => {
+  const f = finding({ id: "1", title: "old news" });
+  const ledger = recordRun(emptyLedger(), mkRun([f]));
+  const fresh = finding({ id: "2", title: "brand new problem", axis: "adversarial" });
+
+  const applied = applyLedger([f, fresh], ledger);
+  assert.deepEqual(applied.newFindings.map((x) => x.id), ["2"]);
+  assert.deepEqual(applied.recurring.map((x) => x.finding.id), ["1"]);
+});
+
+test("the ledger reads back grouped by status", () => {
+  let ledger = recordRun(emptyLedger(), mkRun([finding({ id: "1", title: "open thing" })]));
+  ledger = dismiss(ledger, Object.keys(ledger.entries)[0], { note: "fine", by: "me" }).ledger;
+  const lines = describeLedger(ledger).join("\n");
+  assert.match(lines, /DISMISSED/);
+  assert.match(lines, /fine/);
+});
+
+/* ---------------------------------------------------------- differential */
+
+test("a failure is only a regression when the base version passed", () => {
+  // Calling a pre-existing failure a regression sends someone hunting through a
+  // diff that never touched it.
+  assert.equal(classify({ title: "t", passed: true }, { title: "t", passed: false }).verdict, "regression");
+  assert.equal(classify({ title: "t", passed: false }, { title: "t", passed: false }).verdict, "pre-existing");
+  assert.equal(classify({ title: "t", passed: false }, { title: "t", passed: true }).verdict, "fixed");
+  assert.equal(classify({ title: "t", passed: true }, { title: "t", passed: true }).verdict, "unchanged");
+});
+
+test("a test that ran on only one side is inconclusive, not a regression", () => {
+  const only = classify(undefined, { title: "t", passed: false });
+  assert.equal(only.verdict, "inconclusive");
+  assert.match(only.note!, /base/);
+});
+
+test("a regression cites the previous version as its oracle", () => {
+  // `prior-run` has been in the schema since the beginning and nothing has ever
+  // used it. It is a real oracle: often the only record of intended behaviour.
+  const findings = findingsFromDifferential(
+    {
+      baseRef: "main",
+      results: [],
+      regressions: [{ title: "notes list loads", verdict: "regression", base: { title: "notes list loads", passed: true }, head: { title: "notes list loads", passed: false, error: "got 500" } }],
+      preExisting: [],
+      fixed: [],
+      blockers: [],
+      notes: [],
+    },
+    { axis: "happy-path", runId: "r1", specFile: "happy-path-1.spec.ts" },
+  );
+
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].oracle.type, "prior-run");
+  assert.match(findings[0].oracle.citation!, /main/);
+  // Still PLAUSIBLE: triage has not reproduced it.
+  assert.equal(findings[0].tier, "PLAUSIBLE");
+});
+
+test("outcomes are read per test from the reporter", () => {
+  const outcomes = outcomesFromReport({
+    suites: [
+      {
+        specs: [
+          { title: "a", tests: [{ status: "expected" }] },
+          { title: "b", tests: [{ status: "unexpected", results: [{ error: { message: "boom" } }] }] },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual(outcomes.map((o) => [o.title, o.passed]), [["a", true], ["b", false]]);
+  assert.equal(outcomes[1].error, "boom");
+});
+
+test("the base instance gets its own port so both versions can be up at once", () => {
+  assert.equal(pickBasePort("http://localhost:4600"), 5600);
+  assert.equal(withPort("http://localhost:4600", 5600), "http://localhost:5600");
+  // Never past the top of the range.
+  assert.ok(pickBasePort("http://localhost:65000") < 65_535);
+});
+
+/* --------------------------------------------------------------- promote */
+
+test("only findings that proved something are promoted", () => {
+  // An unproven generated test is not worth adding to a suite; a directory of
+  // them is how a team learns to ignore the directory.
+  const run = mkRun([
+    finding({ id: "1", title: "real bug", tier: "CONFIRMED" }),
+    finding({ id: "2", title: "unverified thing", tier: "PLAUSIBLE" }),
+    finding({ id: "3", title: "test was wrong", tier: "DISCARDED" }),
+  ]);
+
+  assert.deepEqual(candidates(run, "/tmp/scratch").map((c) => c.finding.id), ["1"]);
+  // Lowering the bar is possible, and explicit.
+  assert.equal(candidates(run, "/tmp/scratch", "PLAUSIBLE").length, 2);
+});
+
+test("a promoted spec is named after what it caught", () => {
+  const name = promotedName(finding({ id: "1", title: "Viewers can read every client's notes at /admin" }));
+  assert.equal(name, "rbac-scope-viewers-can-read-every-client-s-notes-at-admin.spec.ts");
+});
+
+test("the header says what the test is entitled to claim", () => {
+  const withSource = promotionHeader(
+    finding({ id: "1", title: "x", oracle: { type: "acceptance-criteria", citation: "README.md:14", quote: "A viewer must not reach /admin." } }),
+    "run-1",
+    new Date("2026-08-06T00:00:00Z"),
+  );
+  assert.match(withSource, /A viewer must not reach \/admin\./);
+
+  const without = promotionHeader(finding({ id: "1", title: "x" }), "run-1", new Date());
+  // When nothing was written down, the file says so rather than implying a rule.
+  assert.match(without, /encodes an observation rather than a requirement/);
+});
+
+test("an edited promoted file is never silently overwritten", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-promote-"));
+  const scratch = path.join(root, "scratch");
+  await mkdir(scratch, { recursive: true });
+  await writeFile(path.join(scratch, "rbac-scope-1.spec.ts"), "// the spec\n", "utf8");
+
+  const run = mkRun([finding({ id: "1", title: "real bug", tier: "CONFIRMED" })]);
+  const first = await promote({ projectRoot: root, run, specDir: scratch });
+  assert.equal(first.written.length, 1);
+
+  // Someone edits it.
+  const target = path.join(root, "tests", "clarvis", promotedName(run.findings[0]));
+  await writeFile(target, "// edited by a human\n", "utf8");
+
+  const second = await promote({ projectRoot: root, run, specDir: scratch });
+  assert.equal(second.written.length, 0);
+  assert.match(second.skipped[0].why, /may have been edited/);
+  assert.equal(await readFile(target, "utf8"), "// edited by a human\n");
+
+  // Explicitly asked for, it replaces.
+  const forced = await promote({ projectRoot: root, run, specDir: scratch, replace: true });
+  assert.equal(forced.written.length, 1);
+});
+
+test("promoting twice with no change is a no-op", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-promote-"));
+  const scratch = path.join(root, "scratch");
+  await mkdir(scratch, { recursive: true });
+  await writeFile(path.join(scratch, "rbac-scope-1.spec.ts"), "// the spec\n", "utf8");
+
+  const run = mkRun([finding({ id: "1", title: "real bug", tier: "CONFIRMED" })]);
+  const now = new Date("2026-08-06T00:00:00Z");
+  await promote({ projectRoot: root, run, specDir: scratch, now });
+  const again = await promote({ projectRoot: root, run, specDir: scratch, now });
+
+  assert.equal(again.written.length, 0);
+  assert.match(again.skipped[0].why, /unchanged/);
+});
+
+/* -------------------------------------------------------------- taxonomy */
+
+const fix = (shortSha: string, subject: string): BugFix => ({
+  sha: `${shortSha}0000`,
+  shortSha,
+  parentSha: `${shortSha}0000~1`,
+  subject,
+  body: "",
+  date: "2026-01-01T00:00:00Z",
+  files: ["src/a.ts"],
+  signals: [],
+  confidence: 0.9,
+});
+
+function taxonomyRunner(reply: unknown): AgentRunner {
+  return {
+    async invoke({ definition }) {
+      return {
+        text: JSON.stringify(reply),
+        model: definition.model,
+        usage: { inputTokens: 10, outputTokens: 10 },
+        usdReported: 0.01,
+      };
+    },
+  };
+}
+
+test("a theme supported by fewer than two real commits is discarded", async () => {
+  // One occurrence is an incident. Building a testing axis on it spends every
+  // future run chasing a single event.
+  const { taxonomy } = await deriveTaxonomy({
+    fixes: [fix("aaa", "fix: tenant leak"), fix("bbb", "fix: scoping"), fix("ccc", "fix: other"), fix("ddd", "fix: more")],
+    runner: taxonomyRunner({
+      axes: [
+        { key: "tenant-scoping", title: "Tenant scoping", brief: "Check org boundaries", commits: ["aaa", "bbb"] },
+        { key: "one-off", title: "One off", brief: "x", commits: ["ccc"] },
+      ],
+      irrelevantStandardAxes: [],
+    }),
+    budget: new Budget({ maxUsd: 1 }),
+  });
+
+  assert.deepEqual(taxonomy.derived.map((d) => d.key), ["tenant-scoping"]);
+  assert.equal(taxonomy.discarded.length, 1);
+  assert.match(taxonomy.discarded[0].why, new RegExp(`${MIN_OBSERVATIONS} needed`));
+});
+
+test("a cited commit that was never supplied does not count as evidence", async () => {
+  // A theme supported by invented evidence is supported by nothing.
+  const { taxonomy } = await deriveTaxonomy({
+    fixes: [fix("aaa", "fix: a"), fix("bbb", "fix: b"), fix("ccc", "fix: c"), fix("ddd", "fix: d")],
+    runner: taxonomyRunner({
+      axes: [{ key: "invented", title: "Invented", brief: "x", commits: ["zzz", "yyy"] }],
+      irrelevantStandardAxes: [],
+    }),
+    budget: new Budget({ maxUsd: 1 }),
+  });
+
+  assert.equal(taxonomy.derived.length, 0);
+  assert.match(taxonomy.discarded[0].why, /No supplied commit supports it/);
+});
+
+test("too little history means the standard axes are used unchanged", async () => {
+  const { taxonomy } = await deriveTaxonomy({
+    fixes: [fix("aaa", "fix: only one")],
+    runner: taxonomyRunner({ axes: [] }),
+    budget: new Budget({ maxUsd: 1 }),
+  });
+
+  assert.equal(taxonomy.derived.length, 0);
+  assert.equal(taxonomy.standard.length, 7);
+  assert.ok(taxonomy.notes.some((n) => /too little history/.test(n)));
+});
+
+test("a standard axis is not dropped when something derived refines it", async () => {
+  // Dropping one narrows every future run, permanently and quietly.
+  const { taxonomy } = await deriveTaxonomy({
+    fixes: [fix("aaa", "fix: a"), fix("bbb", "fix: b"), fix("ccc", "fix: c"), fix("ddd", "fix: d")],
+    runner: taxonomyRunner({
+      axes: [{ key: "tenant", title: "Tenant", brief: "x", commits: ["aaa", "bbb"], refines: "rbac-scope" }],
+      irrelevantStandardAxes: ["rbac-scope", "visual"],
+    }),
+    budget: new Budget({ maxUsd: 1 }),
+  });
+
+  assert.ok(taxonomy.standard.includes("rbac-scope"), "refined axes are kept");
+  assert.equal(taxonomy.standard.includes("visual"), false);
+});
+
+test("dropping every standard axis is refused as obviously wrong", async () => {
+  const { taxonomy } = await deriveTaxonomy({
+    fixes: Array.from({ length: 5 }, (_, i) => fix(`f${i}`, `fix: thing ${i}`)),
+    runner: taxonomyRunner({
+      axes: [{ key: "a", title: "A", brief: "b", commits: ["f0", "f1"] }],
+      irrelevantStandardAxes: [...Array(7)].map((_, i) => ["happy-path", "rbac-scope", "i18n-rtl", "adversarial", "responsive-a11y", "resilience", "visual"][i]),
+    }),
+    budget: new Budget({ maxUsd: 1 }),
+  });
+
+  assert.equal(taxonomy.standard.length, 7);
+  assert.ok(taxonomy.notes.some((n) => /almost certainly wrong/.test(n)));
+});
+
+test("keys are slugs, so a derived axis can name a spec file", () => {
+  assert.equal(slugKey("Multi-tenant scoping & isolation"), "multi-tenant-scoping-isolation");
+});
+
+/* ------------------------------------------------------- multi-service */
+
+const multi: Profile = {
+  schemaVersion: 1,
+  project: { name: "p", root: "/tmp/p" },
+  boot: { url: "http://localhost:3000", verified: true },
+  auth: { mode: "none", roles: [] },
+  data: { disposable: true, safeTargets: ["localhost:3000"], forbiddenHosts: ["*prod*"] },
+  services: [{ key: "auth", url: "http://localhost:8001" }],
+};
+
+test("mutating tests need every reachable service vouched for, not just the front door", () => {
+  // A spec driving the UI can still write through a service nobody confirmed
+  // was disposable.
+  const decision = decideGuard(multi);
+  assert.equal(decision.mode, "read-only");
+  assert.match(decision.reason, /Service "auth".*not in safeTargets/s);
+});
+
+test("all services are vouched for, so mutating runs", () => {
+  const decision = decideGuard({
+    ...multi,
+    data: { ...multi.data, safeTargets: ["localhost:3000", "localhost:8001"] },
+  });
+  assert.equal(decision.mode, "mutating");
+});
+
+test("a forbidden service aborts the whole run, not just its own axis", () => {
+  const decision = decideGuard({
+    ...multi,
+    data: { ...multi.data, safeTargets: ["localhost:3000", "prod-db.example"] },
+    services: [{ key: "db", url: "http://prod-db.example:5432" }],
+  });
+  assert.equal(decision.mode, "aborted");
+  assert.match(decision.reason, /Service "db"/);
+});

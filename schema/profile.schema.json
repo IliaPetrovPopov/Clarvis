@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clarvis.dev/schema/profile.schema.json",
+  "title": "QA Project Profile",
+  "description": "Everything the QA fleet needs to know about ONE project. Written by the recon agents, read by the test agents. This is the only place project-specific facts are allowed to live.",
+  "type": "object",
+  "required": ["schemaVersion", "project", "boot", "auth", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+
+    "project": {
+      "type": "object",
+      "required": ["name", "root"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "root": { "type": "string", "description": "Absolute path to the repo root." },
+        "reconAt": { "type": "string", "format": "date-time" },
+        "reconCommit": { "type": "string", "description": "git rev at recon time; staleness signal." }
+      }
+    },
+
+    "boot": {
+      "type": "object",
+      "description": "How to get a live app. verified=false blocks the whole pipeline - never guess.",
+      "required": ["url", "verified"],
+      "additionalProperties": false,
+      "properties": {
+        "cmd": { "type": "string", "description": "Shell command that starts the stack. Null if already running." },
+        "cwd": { "type": "string" },
+        "env": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Extra environment for the boot command." },
+        "url": { "type": "string", "description": "Base URL the browser drives." },
+        "readyTimeoutMs": { "type": "integer", "default": 120000 },
+        "readyCheck": { "type": "string", "description": "URL polled until HTTP 2xx/3xx. Defaults to `url`." },
+        "teardownCmd": { "type": "string" },
+        "verified": {
+          "type": "boolean",
+          "description": "TRUE only if recon actually ran the boot and got a live HTTP response."
+        },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "blockers": {
+          "type": "array",
+          "description": "Why boot could not be verified. Surfaced to the human as questions, never as a stack trace.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "auth": {
+      "type": "object",
+      "required": ["mode", "roles"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["none", "cookie-session", "cookie-jwt", "bearer-localstorage", "basic", "custom"]
+        },
+        "loginUrl": { "type": "string" },
+        "apiLogin": {
+          "type": "object",
+          "description": "Preferred: log in over HTTP once and reuse storageState. Far more stable than driving the login form.",
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string" },
+            "method": { "enum": ["POST", "GET"], "default": "POST" },
+            "bodyTemplate": { "type": "object", "description": "Keys with {{username}} / {{password}} placeholders." }
+          }
+        },
+        "roles": {
+          "type": "array",
+          "description": "One entry per distinct permission level worth testing.",
+          "items": {
+            "type": "object",
+            "required": ["key", "username", "password"],
+            "additionalProperties": false,
+            "properties": {
+              "key": { "type": "string", "description": "Stable id, e.g. 'sysadmin'." },
+              "label": { "type": "string" },
+              "username": { "type": "string" },
+              "password": { "type": "string" },
+              "storageState": { "type": "string", "description": "Path to the saved Playwright storageState." },
+              "expectedDenied": {
+                "type": "array",
+                "description": "Routes this role MUST NOT reach. Feeds the rbac axis directly.",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "data": {
+      "type": "object",
+      "description": "The safety gate. Mutating axes refuse to run unless disposable=true AND the live base URL matches safeTargets.",
+      "required": ["disposable", "safeTargets"],
+      "additionalProperties": false,
+      "properties": {
+        "disposable": {
+          "type": "boolean",
+          "default": false,
+          "description": "TRUE only when a human confirmed this backend is throwaway. Defaults false - unknown projects are read-only."
+        },
+        "safeTargets": {
+          "type": "array",
+          "description": "Glob patterns of hosts:ports safe to mutate, e.g. 'localhost:810*'.",
+          "items": { "type": "string" }
+        },
+        "confirmedBy": { "type": "string", "description": "Who marked it disposable, and when." },
+        "fixturePrefix": {
+          "type": "string",
+          "default": "qa-",
+          "description": "Every record an agent creates must start with this + its axis key."
+        },
+        "teardownCmd": { "type": "string" },
+        "forbiddenHosts": {
+          "type": "array",
+          "description": "Hard deny-list found by recon (prod hostnames, shared DB IPs). Guard aborts on any match, even if safeTargets would allow.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "title": { "type": "string" },
+              "requiresAuth": { "type": "boolean" },
+              "roles": { "type": "array", "items": { "type": "string" } },
+              "source": { "type": "string", "description": "file:line where the route is declared." }
+            }
+          }
+        },
+        "entryPoints": {
+          "type": "array",
+          "description": "Named flows worth a happy-path pass, e.g. 'create user'.",
+          "items": {
+            "type": "object",
+            "required": ["name", "startRoute"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "startRoute": { "type": "string" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "stack": {
+      "type": "object",
+      "description": "Drives which cross-project lessons apply. Tier-2 lessons are gated on these values.",
+      "additionalProperties": false,
+      "properties": {
+        "framework": { "type": "string", "description": "e.g. 'vite-react@19'" },
+        "css": { "type": "string", "description": "e.g. 'tailwind@4'" },
+        "ui": { "type": "string", "description": "e.g. 'shadcn'" },
+        "i18n": { "type": "string", "description": "e.g. 'i18next'" },
+        "locales": { "type": "array", "items": { "type": "string" } },
+        "rtlLocales": { "type": "array", "items": { "type": "string" } },
+        "testRunner": { "type": "string" },
+        "packageManager": { "enum": ["npm", "pnpm", "yarn", "bun"] }
+      }
+    },
+
+    "risk": {
+      "type": "object",
+      "description": "Where bugs are most likely. Orders the work when the fleet can't cover everything.",
+      "additionalProperties": false,
+      "properties": {
+        "hotspots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["area", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "area": { "type": "string" },
+              "reason": { "type": "string" },
+              "score": { "type": "number", "minimum": 0, "maximum": 1 },
+              "files": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+
+    "viewports": {
+      "type": "array",
+      "default": [
+        { "name": "mobile", "width": 375, "height": 812 },
+        { "name": "tablet", "width": 768, "height": 1024 },
+        { "name": "desktop", "width": 1440, "height": 900 }
+      ],
+      "items": {
+        "type": "object",
+        "required": ["name", "width", "height"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

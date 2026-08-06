@@ -1,0 +1,97 @@
+{
+  "$comment": "Machine-readable answer key for the benchmark. BUGS.md is the human copy; keep them in step. A fleet must never be given this file - a run that has read it measures nothing.",
+  "target": "demo-app",
+  "bugs": [
+    {
+      "id": "B1",
+      "axis": "adversarial",
+      "title": "Session cookie is set without HttpOnly",
+      "where": "server.mjs, login POST",
+      "signals": [
+        "httponly"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "B2",
+      "axis": "adversarial",
+      "title": "Note titles are interpolated into HTML unescaped (stored XSS)",
+      "where": "server.mjs, notes GET",
+      "signals": [
+        "xss",
+        "escape",
+        "unescaped",
+        "script"
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "B3",
+      "axis": "happy-path",
+      "title": "An empty note title is accepted and creates a blank row",
+      "where": "server.mjs, notes POST",
+      "signals": [
+        "empty title",
+        "blank",
+        "empty note"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "B4",
+      "axis": "i18n-rtl",
+      "title": "The login error is untranslated in Arabic",
+      "where": "LOCALES.ar.bad",
+      "signals": [
+        "untranslated",
+        "arabic",
+        "wrong username or password",
+        "english"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "B5",
+      "axis": "responsive-a11y",
+      "title": "The nav is clipped below ~430px, so Sign out is unreachable",
+      "where": ".toolbar / h1 CSS",
+      "signals": [
+        "overflow",
+        "toolbar",
+        "viewport",
+        "320",
+        "wrap"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "B6",
+      "axis": "rbac-scope",
+      "title": "/admin answers 200 to a viewer instead of refusing",
+      "where": "server.mjs, admin route",
+      "signals": [
+        "admin",
+        "200",
+        "viewer",
+        "refus",
+        "deny"
+      ],
+      "severity": "critical",
+      "note": "The page looks correct to a human because the contents are hidden. Only an assertion on the response catches it. A fleet that reports B1-B5 and misses this one is the failure mode the benchmark exists for."
+    },
+    {
+      "id": "B7",
+      "axis": "i18n-rtl",
+      "title": "Nav links drop the ?lang parameter, so an Arabic user is thrown back to English on every click",
+      "where": "server.mjs, page() nav markup",
+      "signals": [
+        "persists",
+        "nav links",
+        "lang param",
+        "locale"
+      ],
+      "severity": "medium",
+      "note": "NOT SEEDED DELIBERATELY. Written by accident and found by the fleet on 2026-08-05, reported as 'unmatched' rather than scored against it. Added to the key afterwards. This is why unmatched findings are never counted as false positives."
+    }
+  ]
+}

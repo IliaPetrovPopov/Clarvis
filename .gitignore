@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+
+# Per-project state written into whatever project is being tested. Includes
+# transcripts, which can hold retrieved text from that project.
+.clarvis/
+
+# Credentials never belong in the repo. They live in env vars or in
+# ~/.clarvis/credentials.json, and loadJiraCredential refuses a credentials
+# file found inside a project root.
+.env
+.env.*
+!.env.example
+credentials.json
+*.pem
+*.key
+
+# Editor and machine-local settings
+.claude/settings.local.json
+.vscode/
+.idea/
+*-bak
+
+# stray shell debris
+$LOG

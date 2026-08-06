@@ -1,0 +1,20 @@
+{
+  "name": "clarvis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Clarvis - a team of AI QA agents that inspect a project, then test it in a real browser.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:ui": "pnpm --filter @clarvis/ui dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "clarvis": "node packages/cli/bin/clarvis.mjs",
+    "test": "pnpm --filter @clarvis/core test"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

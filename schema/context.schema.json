@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clarvis.dev/schema/context.schema.json",
+  "title": "Feature Context",
+  "description": "What a feature is SUPPOSED to do, assembled by the research fleet from human-authored sources. Written by research, read by the QA fleet, and used as the oracle for every finding.\n\nThe governing rule: research agents QUOTE AND LINK. They never paraphrase a source into a new requirement, and they never author one. If an agent could write a requirement here, the QA fleet would be graded against a truth the system invented for itself, and the whole falsifiability claim collapses. Anything without a human-authored source belongs in `unknowns`, not in `requirements`.",
+  "type": "object",
+  "required": ["schemaVersion", "feature", "gatheredAt", "requirements", "unknowns", "sources"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+
+    "feature": {
+      "type": "object",
+      "required": ["key", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "description": "Stable slug, e.g. 'org-client-scoping'." },
+        "title": { "type": "string" },
+        "summary": {
+          "type": "string",
+          "description": "One paragraph, assembled only from quoted sources. Not an agent's own description."
+        },
+        "trackerKeys": {
+          "type": "array",
+          "description": "Jira/Linear keys this feature spans, e.g. ['EXM-412'].",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "gatheredAt": { "type": "string", "format": "date-time" },
+
+    "staleAfter": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Context rots as tickets change. Past this, the fleet warns rather than silently testing against an old spec."
+    },
+
+    "sources": {
+      "type": "array",
+      "description": "Every human-authored artifact consulted. A requirement may only cite a source listed here.",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "ref"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Local id referenced by requirements, e.g. 's1'." },
+          "type": {
+            "enum": [
+              "jira-issue",
+              "jira-comment",
+              "confluence-page",
+              "linear-issue",
+              "github-issue",
+              "pull-request",
+              "commit-message",
+              "adr",
+              "readme",
+              "code-comment",
+              "i18n-string",
+              "incident-report",
+              "design-doc"
+            ]
+          },
+          "ref": { "type": "string", "description": "Issue key, URL, or file:line." },
+          "title": { "type": "string" },
+          "author": { "type": "string", "description": "Who wrote it. Anonymous sources are weaker evidence." },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "retrievedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+
+    "requirements": {
+      "type": "array",
+      "description": "Testable statements of intended behaviour. Each one becomes a candidate oracle.",
+      "items": {
+        "type": "object",
+        "required": ["id", "statement", "quote", "sourceIds", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "statement": {
+            "type": "string",
+            "description": "The requirement as a testable assertion. Must be supported verbatim by `quote`."
+          },
+          "quote": {
+            "type": "string",
+            "description": "The human-authored text this rests on, copied exactly. Empty means the requirement was inferred, which is not allowed: move it to `unknowns`."
+          },
+          "sourceIds": {
+            "type": "array",
+            "minItems": 1,
+            "description": "At least one. A requirement with no source is invalid by construction.",
+            "items": { "type": "string" }
+          },
+          "confidence": {
+            "enum": ["explicit", "implied", "contested"],
+            "description": "explicit: the source states it outright. implied: the source clearly entails it. contested: sources disagree - see `conflictsWith`."
+          },
+          "conflictsWith": {
+            "type": "array",
+            "description": "Other requirement ids this contradicts. Conflicts are surfaced to the human, never resolved by an agent.",
+            "items": { "type": "string" }
+          },
+          "appliesTo": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "routes": { "type": "array", "items": { "type": "string" } },
+              "roles": { "type": "array", "items": { "type": "string" } },
+              "locales": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "axisHints": {
+            "type": "array",
+            "description": "Which test axes this requirement is relevant to.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "unknowns": {
+      "type": "array",
+      "description": "Behaviour nobody wrote down. This list is a deliverable, not a failure: it tells the human exactly where the fleet is testing blind, and it is where an agent's guesses are quarantined so they can never become oracles.",
+      "items": {
+        "type": "object",
+        "required": ["question"],
+        "additionalProperties": false,
+        "properties": {
+          "question": { "type": "string" },
+          "why": { "type": "string", "description": "What the fleet cannot judge without an answer." },
+          "guess": {
+            "type": "string",
+            "description": "The agent's best inference. Explicitly NOT usable as an oracle - it lives here precisely so it cannot be cited as one."
+          },
+          "blocksAxes": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "knownIssues": {
+      "type": "array",
+      "description": "Already-reported or accepted behaviour. Suppresses re-reporting, which is the fastest way to make a team stop reading the output.",
+      "items": {
+        "type": "object",
+        "required": ["ref", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "ref": { "type": "string" },
+          "summary": { "type": "string" },
+          "status": { "enum": ["open", "accepted", "wontfix", "fixed"] }
+        }
+      }
+    },
+
+    "regressionHistory": {
+      "type": "array",
+      "description": "Bugs this feature has had before. The single best predictor of where it will break again, and the main input to test prioritisation.",
+      "items": {
+        "type": "object",
+        "required": ["ref", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "ref": { "type": "string" },
+          "summary": { "type": "string" },
+          "fixedAt": { "type": "string", "format": "date-time" },
+          "files": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "description": "How this context was assembled, so a stale or thin oracle is visible rather than assumed.",
+      "additionalProperties": false,
+      "properties": {
+        "agents": { "type": "array", "items": { "type": "string" } },
+        "connectors": {
+          "type": "array",
+          "description": "Which integrations actually answered. A connector that failed means a whole class of source is missing.",
+          "items": {
+            "type": "object",
+            "required": ["name", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "enum": ["jira", "confluence", "linear", "github", "git", "filesystem"] },
+              "status": { "enum": ["ok", "unauthorized", "unreachable", "not-configured", "empty"] },
+              "scope": { "enum": ["read-only", "read-write"] },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "description": "Honesty about the oracle itself: a context built from two comments is not the same as one built from a written spec.",
+          "additionalProperties": false,
+          "properties": {
+            "sourcesFound": { "type": "integer" },
+            "requirementsExplicit": { "type": "integer" },
+            "requirementsImplied": { "type": "integer" },
+            "unknownCount": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

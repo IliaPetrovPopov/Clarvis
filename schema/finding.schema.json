@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clarvis.dev/schema/finding.schema.json",
+  "title": "QA Finding",
+  "description": "One reported defect. A finding with no evidence and no oracle is not a bug - it is discarded by tooling before a human ever sees it.",
+  "type": "object",
+  "required": ["id", "axis", "title", "severity", "tier", "oracle", "expected", "actual", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "description": "Stable hash of axis + route + locator + title." },
+    "axis": {
+      "enum": ["happy-path", "rbac-scope", "i18n-rtl", "adversarial", "responsive-a11y", "resilience", "visual"]
+    },
+    "title": { "type": "string", "maxLength": 120 },
+    "severity": { "enum": ["critical", "high", "medium", "low"] },
+
+    "tier": {
+      "enum": ["CONFIRMED", "PLAUSIBLE", "QUESTION", "DISCARDED"],
+      "description": "Set by triage, never by the finding agent. CONFIRMED requires: artifacts present + oracle cited + reproduced 3/3 cold by a different agent + negative control passed."
+    },
+    "tierReason": { "type": "string", "description": "Why triage assigned this tier. Required for anything below CONFIRMED." },
+
+    "oracle": {
+      "type": "object",
+      "description": "What makes this WRONG rather than merely surprising. No citation caps severity at QUESTION.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": ["spec", "acceptance-criteria", "visible-label", "i18n-key", "code-intent", "prior-run", "none"],
+          "description": "Ranked most to least authoritative. 'none' means the agent only found it suspicious."
+        },
+        "citation": { "type": "string", "description": "file:line, i18n key, ticket id, or the exact on-screen text relied on." },
+        "quote": { "type": "string", "description": "The source text itself, so a human can judge without opening anything." }
+      }
+    },
+
+    "route": { "type": "string" },
+    "role": { "type": "string", "description": "Which auth role reproduced it." },
+    "viewport": { "type": "string" },
+    "locale": { "type": "string" },
+    "locator": { "type": "string", "description": "Playwright locator that anchors the failure." },
+
+    "steps": {
+      "type": "array",
+      "description": "Human-readable repro. Must match what the spec file actually does.",
+      "items": { "type": "string" }
+    },
+    "expected": { "type": "string" },
+    "actual": { "type": "string" },
+
+    "evidence": {
+      "type": "object",
+      "description": "Artifact-or-it-did-not-happen. Missing specFile or trace => auto-DISCARDED.",
+      "required": ["specFile"],
+      "additionalProperties": false,
+      "properties": {
+        "specFile": { "type": "string", "description": "Re-runnable Playwright spec, relative to the run dir." },
+        "tracePath": { "type": "string" },
+        "screenshots": { "type": "array", "items": { "type": "string" } },
+        "consoleLogPath": { "type": "string" },
+        "networkLogPath": { "type": "string" },
+        "exitCode": { "type": "integer" },
+        "stderrExcerpt": { "type": "string", "maxLength": 2000 }
+      }
+    },
+
+    "determinism": {
+      "type": "object",
+      "description": "3/3 cold failures = bug. 1-2/3 = flake, filed separately and never as a bug.",
+      "additionalProperties": false,
+      "properties": {
+        "runs": { "type": "integer" },
+        "failures": { "type": "integer" },
+        "verdict": { "enum": ["deterministic", "flaky", "not-reproduced"] }
+      }
+    },
+
+    "negativeControl": {
+      "type": "object",
+      "description": "Same spec against the parent commit / the expected path. Failing there too means the SPEC is wrong, not the app.",
+      "additionalProperties": false,
+      "properties": {
+        "ran": { "type": "boolean" },
+        "ref": { "type": "string" },
+        "alsoFailed": { "type": "boolean" }
+      }
+    },
+
+    "verifiedBy": { "type": "string", "description": "Agent id that reproduced it cold - must differ from the finder." },
+    "foundBy": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" },
+
+    "tracker": {
+      "type": "object",
+      "description": "Populated only after a human approves the draft. Never auto-created.",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["none", "drafted", "approved", "created"] },
+        "system": { "enum": ["jira", "linear", "github"] },
+        "key": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    }
+  }
+}

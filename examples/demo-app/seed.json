@@ -1,0 +1,10 @@
+{
+  "users": [
+    { "username": "ada@demo.test",  "password": "demo-admin-pass",  "role": "admin",  "name": "Ada" },
+    { "username": "linus@demo.test", "password": "demo-viewer-pass", "role": "viewer", "name": "Linus" }
+  ],
+  "notes": [
+    { "title": "Ship the release notes", "owner": "ada@demo.test" },
+    { "title": "Check the RTL layout",    "owner": "linus@demo.test" }
+  ]
+}

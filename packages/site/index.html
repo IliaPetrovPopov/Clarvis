@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Clarvis - a QA team that cannot lie to you</title>
+    <meta
+      name="description"
+      content="Clarvis inspects your project, drives real browsers, and reports only what it can prove: a rerunnable spec, a trace, and a cited source of truth. Runs locally. Your code never leaves the machine."
+    />
+    <meta property="og:title" content="Clarvis - a QA team that cannot lie to you" />
+    <meta
+      property="og:description"
+      content="AI QA agents that report only what they can prove. Local-first. Fails closed."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <!-- Ambient projection layers. Decorative only. -->
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
+    <div class="scan" aria-hidden="true"></div>
+
+    <!--
+      Persistent chrome. This is what separates "a dark website" from "a display
+      you are looking through": it never scrolls, it brackets the viewport, and
+      the rails carry live readouts so the surround is instrumentation rather
+      than decoration.
+    -->
+    <div class="frame" aria-hidden="true">
+      <span class="frame__corner frame__corner--tl"></span>
+      <span class="frame__corner frame__corner--tr"></span>
+      <span class="frame__corner frame__corner--bl"></span>
+      <span class="frame__corner frame__corner--br"></span>
+
+      <div class="rail rail--l">
+        <span class="rail__cap">SEC</span>
+        <span class="rail__value" id="railSection">00 / INIT</span>
+      </div>
+
+      <div class="rail rail--r">
+        <span class="rail__cap">SCROLL</span>
+        <div class="rail__meter"><span id="railFill"></span></div>
+        <span class="rail__value rail__value--num" id="railPct">000</span>
+      </div>
+    </div>
+
+    <div class="reticle" id="reticle" aria-hidden="true"><span></span><span></span></div>
+
+    <header class="nav" id="nav">
+      <a class="nav__brand" href="#top" aria-label="Clarvis home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-word">CLARVIS</span>
+        <span class="brand-ver" aria-hidden="true">v0.1</span>
+      </a>
+
+      <nav class="nav__links" id="navLinks" aria-label="Primary">
+        <a href="#problem"><i aria-hidden="true">01</i>Problem</a>
+        <a href="#how"><i aria-hidden="true">02</i>How it works</a>
+        <a href="#proof"><i aria-hidden="true">03</i>Proof</a>
+        <a href="#guard"><i aria-hidden="true">04</i>Safety</a>
+        <a href="#pricing"><i aria-hidden="true">06</i>Pricing</a>
+      </nav>
+
+      <a class="btn btn--ghost nav__cta" href="#pricing">Get&nbsp;access</a>
+
+      <button
+        class="nav__toggle"
+        id="navToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="navLinks"
+        aria-label="Open menu"
+      >
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </button>
+    </header>
+
+    <main id="main">
+      <!-- ============================================================ HERO -->
+      <section class="hero" id="top" data-sec="00 / OVERVIEW">
+        <div class="wrap hero__grid">
+          <div class="hero__copy">
+            <p class="eyebrow" data-boot>
+              <span class="dot" aria-hidden="true"></span>
+              Autonomous QA · local-first
+              <span class="eyebrow__sep" aria-hidden="true"></span>
+              <span class="eyebrow__meta">SYS READY</span>
+            </p>
+
+            <h1 class="display" data-boot>
+              A QA team that
+              <em>cannot lie</em>
+              to you.
+            </h1>
+
+            <p class="lede" data-boot>
+              Clarvis reads your project, drives real browsers, and reports only what it
+              can prove. Every finding arrives with a spec you can rerun, a trace you can
+              open, and the source of truth it was judged against. Anything that fails
+              verification is discarded before you ever see it.
+            </p>
+
+            <div class="hero__cta" data-boot>
+              <a class="btn btn--primary" href="#pricing">
+                Get access
+                <svg viewBox="0 0 16 10" aria-hidden="true"><path d="M0 5h14M10 1l4 4-4 4" /></svg>
+              </a>
+              <a class="btn btn--ghost" href="#how">See how it works</a>
+            </div>
+
+            <dl class="hero__stats" data-boot>
+              <div class="brackets">
+                <dt>Verification passes</dt>
+                <dd><span class="count" data-to="6">0</span></dd>
+              </div>
+              <div class="brackets">
+                <dt>Cold reproductions</dt>
+                <dd><span class="count" data-to="3">0</span><span class="dd__of">/3</span></dd>
+              </div>
+              <div class="brackets">
+                <dt>Source uploaded</dt>
+                <dd class="dd--zero">NONE</dd>
+              </div>
+            </dl>
+          </div>
+
+          <!-- Terminal: the product's actual output, verbatim. -->
+          <div class="hero__panel" data-boot>
+            <div
+              class="term"
+              role="img"
+              aria-label="Terminal output from a Clarvis run showing the guard decision, boot verification, and twenty-one passing and two failing specs."
+            >
+              <div class="term__bar">
+                <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="term__title">clarvis run</span>
+                <span class="term__live" aria-hidden="true">LIVE</span>
+              </div>
+              <pre class="term__body"><code><span class="c-dim">$</span> clarvis run <span class="c-dim">--project ./app --axis rbac-scope</span>
+
+  guard    <span class="c-ok">MUTATING</span>  localhost:8100 matched "localhost:810*"
+  boot     <span class="c-ok">verified</span>  up in 2.4s
+  fleet    3 axes · own browser process each
+
+  <span class="c-dim">rbac-scope</span>        <span class="c-ok">DONE</span>   21 pass  <span class="c-warn">2 fail</span>  0 skip
+  <span class="c-dim">triage</span>            reproduced 3/3 cold · oracle cited
+
+  <span class="c-warn">DETECTIONS CONFIRMED</span> - 2 verified, 1 discarded
+  written  .clarvis/runs/latest/run.json</code></pre>
+            </div>
+            <p class="term__note">
+              <span aria-hidden="true">//</span> Counts come from the test runner, never
+              from an agent's summary.
+            </p>
+          </div>
+        </div>
+
+        <div class="marquee" aria-hidden="true">
+          <div class="marquee__track">
+            <span>ARTIFACT OR IT DIDN'T HAPPEN</span><b>/</b>
+            <span>ORACLE REQUIRED</span><b>/</b>
+            <span>3/3 COLD REPRODUCTION</span><b>/</b>
+            <span>NEGATIVE CONTROL</span><b>/</b>
+            <span>FAILS CLOSED</span><b>/</b>
+            <span>ARTIFACT OR IT DIDN'T HAPPEN</span><b>/</b>
+            <span>ORACLE REQUIRED</span><b>/</b>
+            <span>3/3 COLD REPRODUCTION</span><b>/</b>
+            <span>NEGATIVE CONTROL</span><b>/</b>
+            <span>FAILS CLOSED</span><b>/</b>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================= PROBLEM -->
+      <section class="section" id="problem" data-sec="01 / PROBLEM">
+        <div class="wrap">
+          <header class="sec" data-reveal>
+            <span class="sec__id">01</span>
+            <span class="sec__rule"></span>
+            <span class="sec__label">The problem</span>
+            <span class="sec__stat">4 FAILURE MODES</span>
+          </header>
+
+          <h2 class="h2" data-reveal>
+            Every AI tester will happily tell you<br />it found nothing.
+          </h2>
+          <p class="sub" data-reveal>
+            The hard part was never generating tests. It is knowing whether to believe the
+            report. Four ways the confident summary on your screen is wrong:
+          </p>
+
+          <ul class="cards" data-reveal data-stagger>
+            <li class="card brackets" style="--i: 0">
+              <span class="card__num">01</span>
+              <h3>It never clicked anything</h3>
+              <p>
+                The agent describes a flow it did not run. There is no trace, no spec, no
+                screenshot, and prose costs nothing to fabricate.
+              </p>
+            </li>
+            <li class="card brackets" style="--i: 1">
+              <span class="card__num">02</span>
+              <h3>Its own selector was wrong</h3>
+              <p>
+                The test failed because the agent guessed the wrong locator, and the app
+                gets blamed for a bug that does not exist.
+              </p>
+            </li>
+            <li class="card brackets" style="--i: 2">
+              <span class="card__num">03</span>
+              <h3>The specs were skipped</h3>
+              <p>
+                Zero tests executed. The summary still reads green, because nobody was
+                counting what did not run.
+              </p>
+            </li>
+            <li class="card card--hot brackets" style="--i: 3">
+              <span class="card__num">04</span>
+              <h3>It looked at six things</h3>
+              <p>
+                Then reported "all clear". This one is unfixable by any amount of
+                verification, so Clarvis measures it instead of hiding it.
+              </p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================================================= HOW -->
+      <section class="section section--alt" id="how" data-sec="02 / PIPELINE">
+        <div class="wrap">
+          <header class="sec" data-reveal>
+            <span class="sec__id">02</span>
+            <span class="sec__rule"></span>
+            <span class="sec__label">How it works</span>
+            <span class="sec__stat">2 FLEETS · 1 CONTRACT</span>
+          </header>
+
+          <h2 class="h2" data-reveal>Two fleets. One contract.</h2>
+          <p class="sub" data-reveal>
+            Researchers learn the project and write a single file. Testers read only that
+            file. Nothing project-specific lives anywhere else, which is why the same fleet
+            works on the next codebase without being rewritten.
+          </p>
+
+          <ol class="pipeline" data-reveal data-stagger>
+            <li class="step" style="--i: 0">
+              <span class="step__idx">01</span>
+              <div class="step__body">
+                <h3>Recon</h3>
+                <p>
+                  Six researchers boot the app for real, log in as every role, map the
+                  routes, detect the stack, and rank the risk. They write
+                  <code>.clarvis/profile.json</code>. If they cannot prove the app starts,
+                  the pipeline stops and asks you a question instead of guessing.
+                </p>
+              </div>
+              <span class="step__tag">WRITES PROFILE</span>
+            </li>
+            <li class="step" style="--i: 1">
+              <span class="step__idx">02</span>
+              <div class="step__body">
+                <h3>The fleet</h3>
+                <p>
+                  Seven axes, each with its own browser process and its own obsession:
+                  happy path, permissions and scope, adversarial input, i18n and RTL,
+                  responsive and a11y, resilience, visual. They write real Playwright
+                  specs. Not opinions, files.
+                </p>
+              </div>
+              <span class="step__tag">7 AXES</span>
+            </li>
+            <li class="step" style="--i: 2">
+              <span class="step__idx">03</span>
+              <div class="step__body">
+                <h3>Triage</h3>
+                <p>
+                  A separate agent, given only the artifacts, tries to reproduce each
+                  finding cold. Three times. Then runs it against the parent commit to
+                  prove the spec is not the thing that is broken.
+                </p>
+              </div>
+              <span class="step__tag">3/3 COLD</span>
+            </li>
+            <li class="step step--out" style="--i: 3">
+              <span class="step__idx">04</span>
+              <div class="step__body">
+                <h3>What you keep</h3>
+                <p>
+                  Confirmed findings, and the deterministic spec files behind them. Promote
+                  those into CI and they keep working long after the run is forgotten.
+                  <strong>The report is disposable. The suite is the asset.</strong>
+                </p>
+              </div>
+              <span class="step__tag step__tag--out">OUTPUT</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- =========================================================== PROOF -->
+      <section class="section" id="proof" data-sec="03 / VERIFICATION">
+        <div class="wrap">
+          <header class="sec" data-reveal>
+            <span class="sec__id">03</span>
+            <span class="sec__rule"></span>
+            <span class="sec__label">Why you can believe it</span>
+            <span class="sec__stat">6 GATES</span>
+          </header>
+
+          <h2 class="h2" data-reveal>Six ways a finding dies<br />before it reaches you.</h2>
+          <p class="sub" data-reveal>
+            Not one of these is an agent judging its own work. Every gate is deterministic
+            code, or a different agent that never saw the original claim.
+          </p>
+
+          <div class="gates" data-reveal data-stagger>
+            <article class="gate" style="--i: 0">
+              <h3><span>01</span> No artifact, no finding</h3>
+              <p>
+                A claim without a rerunnable spec and a trace is discarded by tooling. Not
+                judged. Discarded.
+              </p>
+            </article>
+            <article class="gate" style="--i: 1">
+              <h3><span>02</span> Numbers come from the runner</h3>
+              <p>
+                Pass, fail and skip are parsed from the test reporter's own JSON. No agent
+                can narrate around them, and skipped is treated as an alarm.
+              </p>
+            </article>
+            <article class="gate" style="--i: 2">
+              <h3><span>03</span> Cold reproduction, 3 of 3</h3>
+              <p>
+                A different agent, handed only the spec, must reproduce it three times from
+                a cold browser. Two of three is a flake, and gets filed as one.
+              </p>
+            </article>
+            <article class="gate" style="--i: 3">
+              <h3><span>04</span> Negative control</h3>
+              <p>
+                The same spec runs against the parent commit. Failing there too means the
+                spec is wrong, not your app.
+              </p>
+            </article>
+            <article class="gate" style="--i: 4">
+              <h3><span>05</span> An oracle, cited</h3>
+              <p>
+                Every finding names its source of truth: a spec line, an i18n key, a
+                visible label. No citation caps it at "question", never "bug".
+              </p>
+            </article>
+            <article class="gate" style="--i: 5">
+              <h3><span>06</span> Assertion lint</h3>
+              <p>
+                Generated specs are scanned for tests that cannot fail. An agent cannot
+                weaken its own assertion until the run turns green.
+              </p>
+            </article>
+          </div>
+
+          <figure class="verdict brackets" data-reveal>
+            <blockquote>Findings arrive in tiers. You read the top one.</blockquote>
+            <div class="tiers">
+              <span class="tier tier--confirmed">CONFIRMED</span>
+              <span class="tier tier--plausible">PLAUSIBLE</span>
+              <span class="tier tier--question">QUESTION</span>
+              <span class="tier tier--discarded">DISCARDED</span>
+            </div>
+            <figcaption>
+              Tier is confidence. Severity is impact. They are encoded separately so a
+              discarded critical recedes and a confirmed low still holds your attention.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- =========================================================== GUARD -->
+      <section class="section section--guard" id="guard" data-sec="04 / SAFETY">
+        <div class="wrap">
+          <header class="sec" data-reveal>
+            <span class="sec__id">04</span>
+            <span class="sec__rule"></span>
+            <span class="sec__label">Safety</span>
+            <span class="sec__stat sec__stat--alert">FAILS CLOSED</span>
+          </header>
+
+          <div class="guard__grid">
+            <div>
+              <h2 class="h2" data-reveal>It refuses, by default.</h2>
+              <p class="sub" data-reveal>
+                A tester pointed at the wrong host can write junk into production. So the
+                decision to mutate anything is made by plain deterministic code, before a
+                single browser opens, and it fails closed at every branch.
+              </p>
+
+              <ul class="checks" data-reveal data-stagger>
+                <li style="--i: 0">
+                  <strong>Unvetted projects are read-only.</strong> Mutating axes run only
+                  when a human has explicitly marked the target disposable. The default is
+                  false, so silence means no.
+                </li>
+                <li style="--i: 1">
+                  <strong>A deny-list beats everything.</strong> Name your production hosts
+                  once. A match aborts the entire run, even if the allow-list would have
+                  permitted it.
+                </li>
+                <li style="--i: 2">
+                  <strong>Nothing leaves the machine.</strong> Clarvis installs locally and
+                  drives your app locally. Your source is never uploaded, because there is
+                  no server to upload it to.
+                </li>
+                <li style="--i: 3">
+                  <strong>Refusals are loud.</strong> Every axis the guard blocked is listed
+                  in the run. A partial pass is never presented as full coverage.
+                </li>
+              </ul>
+            </div>
+
+            <div class="guard__panel" data-reveal>
+              <div class="term term--alert">
+                <div class="term__bar">
+                  <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="term__title">clarvis guard</span>
+                  <span class="term__live term__live--alert" aria-hidden="true">HALT</span>
+                </div>
+                <pre class="term__body"><code><span class="c-dim">$</span> clarvis guard <span class="c-dim">--url https://app.acme.com</span>
+
+  target   app.acme.com:443
+  mode     <span class="c-bad">ABORTED</span>
+  reason   matches forbidden host
+           pattern "*.acme.com".
+           Refusing to run at all.
+
+  refused  happy-path, rbac-scope,
+           adversarial, resilience,
+           i18n-rtl, responsive-a11y,
+           visual
+
+<span class="c-dim">exit 2</span></code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================== LIMITS -->
+      <section class="section section--alt" id="limits" data-sec="05 / LIMITS">
+        <div class="wrap">
+          <header class="sec" data-reveal>
+            <span class="sec__id">05</span>
+            <span class="sec__rule"></span>
+            <span class="sec__label">Honest limits</span>
+            <span class="sec__stat">DISCLOSED</span>
+          </header>
+
+          <h2 class="h2" data-reveal>What Clarvis will not claim.</h2>
+
+          <div class="limits" data-reveal data-stagger>
+            <div class="limit brackets" style="--i: 0">
+              <h3>False positives are solvable.</h3>
+              <p>
+                Six verification passes push them close to zero. The cost is throughput:
+                every finding is run roughly six times before you see it. That trade is
+                deliberate.
+              </p>
+            </div>
+            <div class="limit limit--hot brackets" style="--i: 1">
+              <h3>False negatives are not.</h3>
+              <p>
+                No amount of verification catches the bug nobody looked at. So Clarvis
+                never shows a verdict without coverage beside it, and prints an explicit
+                list of everything a run did not cover.
+              </p>
+            </div>
+            <div class="limit brackets" style="--i: 2">
+              <h3>No detection rate. Yet.</h3>
+              <p>
+                Publishing one requires a seeded-bug benchmark measuring how many known
+                bugs the fleet actually finds. That work is in progress. Until it ships,
+                any percentage would be marketing, not measurement.
+              </p>
+            </div>
+          </div>
+
+          <p class="limits__note" data-reveal>
+            Use Clarvis as a wide net and a regression-suite generator. Not as sign-off.
+            You still sign off.
+          </p>
+        </div>
+      </section>
+
+      <!-- ========================================================= PRICING -->
+      <section class="section" id="pricing" data-sec="06 / ACCESS">
+        <div class="wrap">
+          <header class="sec" data-reveal>
+            <span class="sec__id">06</span>
+            <span class="sec__rule"></span>
+            <span class="sec__label">Access</span>
+            <span class="sec__stat">PERPETUAL LICENCE</span>
+          </header>
+
+          <h2 class="h2" data-reveal>Buy it once. It runs on your machine.</h2>
+          <p class="sub" data-reveal>
+            Clarvis uses the Claude plan you already pay for, so there is no per-run bill
+            and no metered inference. One licence, perpetual for the version you buy,
+            twelve months of updates.
+          </p>
+
+          <div class="plans" data-reveal data-stagger>
+            <article class="plan brackets" style="--i: 0">
+              <h3 class="plan__name">Solo</h3>
+              <p class="plan__price"><span>$</span>249</p>
+              <p class="plan__meta">One developer · perpetual licence</p>
+              <ul>
+                <li>All seven test axes</li>
+                <li>Recon fleet and the safety guard</li>
+                <li>Local dashboard</li>
+                <li>12 months of updates</li>
+              </ul>
+              <a class="btn btn--ghost btn--block" href="#waitlist">Join the waitlist</a>
+            </article>
+
+            <article class="plan plan--feature brackets" style="--i: 1">
+              <span class="plan__flag">Most teams</span>
+              <h3 class="plan__name">Team</h3>
+              <p class="plan__price"><span>$</span>899</p>
+              <p class="plan__meta">Up to 10 developers · perpetual licence</p>
+              <ul>
+                <li>Everything in Solo</li>
+                <li>Jira and Confluence drafts, human-approved</li>
+                <li>CI mode and exit codes</li>
+                <li>Cross-project lessons library</li>
+                <li>12 months of updates</li>
+              </ul>
+              <a class="btn btn--primary btn--block" href="#waitlist">Join the waitlist</a>
+            </article>
+
+            <article class="plan brackets" style="--i: 2">
+              <h3 class="plan__name">Self-hosted</h3>
+              <p class="plan__price plan__price--word">Talk</p>
+              <p class="plan__meta">Air-gapped and regulated environments</p>
+              <ul>
+                <li>Everything in Team</li>
+                <li>Offline install, no network fonts or assets</li>
+                <li>Deny-list policy enforced at install</li>
+                <li>Priority support</li>
+              </ul>
+              <a class="btn btn--ghost btn--block" href="#waitlist">Start a conversation</a>
+            </article>
+          </div>
+
+          <p class="plans__note" data-reveal>
+            Requires an active Claude plan. Clarvis never sees your source, and never sends
+            it anywhere.
+          </p>
+        </div>
+      </section>
+
+      <!-- ============================================================= CTA -->
+      <section class="cta" id="waitlist" data-sec="07 / REQUEST">
+        <div class="wrap cta__inner">
+          <h2 class="display display--sm" data-reveal>
+            Point it at something<br />you are afraid to ship.
+          </h2>
+          <p class="sub sub--center" data-reveal>
+            Early access opens to a small group first. Bring the messiest feature you have.
+          </p>
+
+          <form class="form" data-reveal novalidate>
+            <div class="form__row">
+              <label class="sr-only" for="email">Work email</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                placeholder="you@company.com"
+                required
+              />
+              <button class="btn btn--primary" type="submit">Request access</button>
+            </div>
+            <p class="form__status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot__inner">
+        <span class="brand-word brand-word--sm">CLARVIS</span>
+        <p>Autonomous QA that reports only what it can prove.</p>
+        <span class="foot__meta">Local-first · fails closed</span>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

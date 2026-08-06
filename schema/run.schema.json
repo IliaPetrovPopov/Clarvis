@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://clarvis.dev/schema/run.schema.json",
+  "title": "QA Run",
+  "description": "One invocation of the fleet. This file is what the UI renders. Counts here come from the Playwright JSON reporter, never from an agent's prose.",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "startedAt", "status", "guard", "axes", "findings"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "description": "Sortable: <iso-compact>-<short-hash>." },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["running", "passed", "findings", "blocked", "error", "cancelled"] },
+
+    "request": {
+      "type": "object",
+      "description": "What the human asked for.",
+      "additionalProperties": false,
+      "properties": {
+        "feature": { "type": "string" },
+        "brief": { "type": "string", "description": "The ~10-line human brief. The single highest-value input to the whole run." },
+        "axes": { "type": "array", "items": { "type": "string" } },
+        "profilePath": { "type": "string" }
+      }
+    },
+
+    "guard": {
+      "type": "object",
+      "description": "The safety decision, recorded before anything ran.",
+      "required": ["mode", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["mutating", "read-only", "aborted"],
+          "description": "read-only when the target is not a confirmed disposable backend. aborted when a forbiddenHost matched."
+        },
+        "target": { "type": "string", "description": "Resolved base URL actually driven." },
+        "matchedSafeTarget": { "type": "string" },
+        "reason": { "type": "string" },
+        "skippedAxes": {
+          "type": "array",
+          "description": "Mutating axes refused in read-only mode. Never silently dropped.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "boot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verified": { "type": "boolean" },
+        "durationMs": { "type": "integer" },
+        "blockers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "axes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string" },
+          "status": { "enum": ["pending", "running", "done", "skipped", "error"] },
+          "skipReason": { "type": "string" },
+          "agentId": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "finishedAt": { "type": "string", "format": "date-time" },
+          "specFiles": { "type": "array", "items": { "type": "string" } },
+          "results": {
+            "type": "object",
+            "description": "Parsed from the Playwright JSON reporter. skipped > 0 is an alarm, not a pass.",
+            "additionalProperties": false,
+            "properties": {
+              "passed": { "type": "integer" },
+              "failed": { "type": "integer" },
+              "skipped": { "type": "integer" },
+              "flaky": { "type": "integer" },
+              "durationMs": { "type": "integer" }
+            }
+          },
+          "artifactsDir": { "type": "string" }
+        }
+      }
+    },
+
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "https://clarvis.dev/schema/finding.schema.json" }
+    },
+
+    "coverage": {
+      "type": "object",
+      "description": "Without this, 'no issues found' is meaningless. Printed next to the verdict, always.",
+      "additionalProperties": false,
+      "properties": {
+        "routesVisited": { "type": "integer" },
+        "routesKnown": { "type": "integer" },
+        "rolesExercised": { "type": "array", "items": { "type": "string" } },
+        "localesExercised": { "type": "array", "items": { "type": "string" } },
+        "jsCoveragePct": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+
+    "agentRuns": {
+      "type": "array",
+      "description": "Audit trail. Which agent did what, at what cost.",
+      "items": {
+        "type": "object",
+        "required": ["id", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "role": { "type": "string", "description": "e.g. 'recon-boot', 'qa-rbac-scope', 'triage'." },
+          "model": { "type": "string" },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "finishedAt": { "type": "string", "format": "date-time" },
+          "status": { "enum": ["ok", "error", "timeout"] },
+          "usdEstimate": { "type": "number" },
+          "transcriptPath": { "type": "string" }
+        }
+      }
+    },
+
+    "truncation": {
+      "type": "array",
+      "description": "Anything the run deliberately did NOT cover (caps, sampling, timeouts). Silent truncation reads as full coverage - so it is recorded and shown.",
+      "items": { "type": "string" }
+    }
+  }
+}

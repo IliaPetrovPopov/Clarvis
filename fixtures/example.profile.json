@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "example-admin",
+    "root": "/home/you/code/example-app",
+    "reconAt": "2026-08-05T09:14:22.000Z",
+    "reconCommit": "f43e60c7"
+  },
+  "boot": {
+    "cmd": "npm run e2e:stack:up",
+    "cwd": "services/frontend",
+    "url": "http://localhost:8100",
+    "readyCheck": "http://localhost:8101/health",
+    "readyTimeoutMs": 180000,
+    "teardownCmd": "npm run e2e:stack:down",
+    "verified": true,
+    "verifiedAt": "2026-08-05T09:16:03.000Z"
+  },
+  "auth": {
+    "mode": "cookie-jwt",
+    "loginUrl": "http://localhost:8100/login",
+    "apiLogin": {
+      "url": "http://localhost:8101/api/auth/login",
+      "method": "POST",
+      "bodyTemplate": { "email": "{{username}}", "password": "{{password}}" }
+    },
+    "roles": [
+      {
+        "key": "sysadmin",
+        "label": "System Admin",
+        "username": "admin@example.com",
+        "password": "admin123456",
+        "storageState": ".clarvis/.auth/sysadmin.json",
+        "expectedDenied": []
+      },
+      {
+        "key": "clientadmin",
+        "label": "Client Admin",
+        "username": "qa-clientadmin@example.com",
+        "password": "qa-pass-123456",
+        "storageState": ".clarvis/.auth/clientadmin.json",
+        "expectedDenied": ["/settings/system"]
+      },
+      {
+        "key": "proctor",
+        "label": "Proctor",
+        "username": "qa-proctor@example.com",
+        "password": "qa-pass-123456",
+        "storageState": ".clarvis/.auth/proctor.json",
+        "expectedDenied": ["/users", "/roles", "/settings/system", "/settings/clients"]
+      }
+    ],
+    "notes": "Login is by email, not username. Sessions are httpOnly cookies; storageState carries them."
+  },
+  "data": {
+    "disposable": true,
+    "safeTargets": ["localhost:810*", "127.0.0.1:810*"],
+    "confirmedBy": "you@example.com 2026-08-05",
+    "fixturePrefix": "qa-",
+    "teardownCmd": "npm run e2e:stack:down",
+    "forbiddenHosts": ["203.0.113.10", "*.internal.example", "localhost:800*"]
+  },
+  "surface": {
+    "routes": [
+      { "path": "/dashboard", "title": "Dashboard", "requiresAuth": true },
+      { "path": "/users", "title": "Users", "requiresAuth": true, "roles": ["sysadmin", "clientadmin"] },
+      { "path": "/roles", "title": "Roles", "requiresAuth": true, "roles": ["sysadmin", "clientadmin"] },
+      { "path": "/settings/clients", "title": "Organizations & Clients", "requiresAuth": true, "roles": ["sysadmin"] },
+      { "path": "/settings/system", "title": "System Settings", "requiresAuth": true, "roles": ["sysadmin"] },
+      { "path": "/exams", "title": "Exams", "requiresAuth": true },
+      { "path": "/questions", "title": "Questions", "requiresAuth": true }
+    ],
+    "entryPoints": [
+      { "name": "assign user to organization", "startRoute": "/users", "notes": "Edit user, org picker, client multi-select." },
+      { "name": "create client in organization", "startRoute": "/settings/clients" }
+    ]
+  },
+  "stack": {
+    "framework": "vite-react@19",
+    "css": "tailwind@4",
+    "ui": "shadcn",
+    "i18n": "i18next",
+    "locales": ["en", "de", "hu", "da", "it", "id", "he", "ar", "pl", "cs", "sk", "ro"],
+    "rtlLocales": ["he", "ar"],
+    "testRunner": "playwright",
+    "packageManager": "npm"
+  },
+  "risk": {
+    "hotspots": [
+      {
+        "area": "org/client scoping",
+        "reason": "High churn + past defects: head-client exclusion from userClients, scoped edits overwriting out-of-scope orgs.",
+        "score": 0.9,
+        "files": ["services/user-service/controllers/user.ts", "services/settings-service/controllers/organization.ts"]
+      },
+      {
+        "area": "System Admin org handling",
+        "reason": "System Admins are global/org-less; backend force-clears orgs on promotion. Easy to regress.",
+        "score": 0.75
+      }
+    ]
+  },
+  "viewports": [
+    { "name": "mobile", "width": 375, "height": 812 },
+    { "name": "tablet", "width": 768, "height": 1024 },
+    { "name": "desktop", "width": 1440, "height": 900 }
+  ]
+}

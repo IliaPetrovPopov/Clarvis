@@ -1,0 +1,243 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260805T0921-3f9a1c",
+  "startedAt": "2026-08-05T09:21:04.000Z",
+  "finishedAt": "2026-08-05T09:38:41.000Z",
+  "status": "findings",
+  "request": {
+    "feature": "org/client scoping + RBAC",
+    "brief": "Users can belong to multiple organizations. Within each org they may be a head user and may be granted specific clients. A Client Admin must never see or edit a System Admin. Assigned clients (what the admin ticked) are distinct from effective clients (derived access) - the UI must always render assigned.",
+    "axes": ["happy-path", "rbac-scope", "i18n-rtl"],
+    "profilePath": "fixtures/shared-db.profile.json"
+  },
+  "guard": {
+    "mode": "mutating",
+    "target": "localhost:8100",
+    "matchedSafeTarget": "localhost:810*",
+    "reason": "Target localhost:8100 is a confirmed disposable backend (matched \"localhost:810*\").",
+    "skippedAxes": []
+  },
+  "boot": { "verified": true, "durationMs": 94120 },
+  "axes": [
+    {
+      "key": "happy-path",
+      "status": "done",
+      "agentId": "qa-happy-path-01",
+      "startedAt": "2026-08-05T09:22:40.000Z",
+      "finishedAt": "2026-08-05T09:29:12.000Z",
+      "specFiles": [".clarvis/scratch/qa-happy-path-org-assign.spec.ts"],
+      "results": { "passed": 7, "failed": 1, "skipped": 0, "flaky": 0, "durationMs": 391000 },
+      "artifactsDir": ".clarvis/runs/20260805T0921-3f9a1c/happy-path"
+    },
+    {
+      "key": "rbac-scope",
+      "status": "done",
+      "agentId": "qa-rbac-scope-01",
+      "startedAt": "2026-08-05T09:22:40.000Z",
+      "finishedAt": "2026-08-05T09:33:55.000Z",
+      "specFiles": [
+        ".clarvis/scratch/qa-rbac-scope-route-matrix.spec.ts",
+        ".clarvis/scratch/qa-rbac-scope-api-idor.spec.ts"
+      ],
+      "results": { "passed": 21, "failed": 2, "skipped": 0, "flaky": 1, "durationMs": 674000 },
+      "artifactsDir": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope"
+    },
+    {
+      "key": "i18n-rtl",
+      "status": "done",
+      "agentId": "qa-i18n-rtl-01",
+      "startedAt": "2026-08-05T09:22:41.000Z",
+      "finishedAt": "2026-08-05T09:31:08.000Z",
+      "specFiles": [".clarvis/scratch/qa-i18n-rtl-org-picker.spec.ts"],
+      "results": { "passed": 34, "failed": 1, "skipped": 2, "flaky": 0, "durationMs": 506000 },
+      "artifactsDir": ".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl"
+    }
+  ],
+  "findings": [
+    {
+      "id": "f-8c21ae",
+      "axis": "rbac-scope",
+      "title": "Proctor token can read /api/users/:id for a System Admin",
+      "severity": "critical",
+      "tier": "CONFIRMED",
+      "tierReason": "Reproduced 3/3 cold by qa-triage-01; negative control on parent commit also failed, so this is pre-existing, not a regression introduced by the working tree.",
+      "oracle": {
+        "type": "spec",
+        "citation": "CLAUDE.md#role-based-access-control",
+        "quote": "Proctor: No access to user/role management."
+      },
+      "route": "/api/users/:id",
+      "role": "proctor",
+      "locator": "request(GET /api/users/{sysadminId})",
+      "steps": [
+        "Log in as qa-proctor@example.com via the API to obtain a session cookie.",
+        "GET /api/users/{id} on user-service (8102) with that cookie, using a System Admin id.",
+        "Observe HTTP 200 with the full user document."
+      ],
+      "expected": "403 Forbidden - the Proctor role has no `users` permission at all.",
+      "actual": "200 OK. Response body includes email, status, organizations[] and roleId of the System Admin.",
+      "evidence": {
+        "specFile": ".clarvis/scratch/qa-rbac-scope-api-idor.spec.ts",
+        "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope/trace-8c21ae.zip",
+        "screenshots": [],
+        "networkLogPath": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope/net-8c21ae.har",
+        "exitCode": 1
+      },
+      "determinism": { "runs": 3, "failures": 3, "verdict": "deterministic" },
+      "negativeControl": { "ran": true, "ref": "HEAD~1", "alsoFailed": true },
+      "foundBy": "qa-rbac-scope-01",
+      "verifiedBy": "qa-triage-01",
+      "createdAt": "2026-08-05T09:34:02.000Z",
+      "tracker": { "status": "drafted" }
+    },
+    {
+      "id": "f-1d55b0",
+      "axis": "happy-path",
+      "title": "Org edit as Client Admin drops the user's other organizations",
+      "severity": "high",
+      "tier": "CONFIRMED",
+      "tierReason": "Reproduced 3/3 cold by qa-triage-02. Negative control on HEAD~1 passed, so the working tree introduced it.",
+      "oracle": {
+        "type": "acceptance-criteria",
+        "citation": "run brief",
+        "quote": "updateUser MERGES, never replaces, for non-System-Admins - out-of-scope orgs are preserved."
+      },
+      "route": "/users",
+      "role": "clientadmin",
+      "locator": "getByRole('dialog', { name: 'Edit user' })",
+      "steps": [
+        "Seed qa-multiorg-user assigned to Org A and Org B.",
+        "Log in as a Client Admin scoped to Org A only.",
+        "Open the user, change the client selection inside Org A, save.",
+        "Re-fetch the user as System Admin."
+      ],
+      "expected": "organizations[] still contains both Org A (updated) and Org B (untouched).",
+      "actual": "organizations[] contains only Org A. The Org B assignment is gone.",
+      "evidence": {
+        "specFile": ".clarvis/scratch/qa-happy-path-org-assign.spec.ts",
+        "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/happy-path/trace-1d55b0.zip",
+        "screenshots": [".clarvis/runs/20260805T0921-3f9a1c/happy-path/shot-1d55b0-after-save.png"],
+        "exitCode": 1
+      },
+      "determinism": { "runs": 3, "failures": 3, "verdict": "deterministic" },
+      "negativeControl": { "ran": true, "ref": "HEAD~1", "alsoFailed": false },
+      "foundBy": "qa-happy-path-01",
+      "verifiedBy": "qa-triage-02",
+      "createdAt": "2026-08-05T09:30:18.000Z",
+      "tracker": { "status": "none" }
+    },
+    {
+      "id": "f-77e903",
+      "axis": "i18n-rtl",
+      "title": "Client multi-select overflows its container in Hebrew at 375px",
+      "severity": "medium",
+      "tier": "CONFIRMED",
+      "tierReason": "Reproduced 3/3 cold at the same viewport and locale.",
+      "oracle": {
+        "type": "visible-label",
+        "citation": "he.json:settings.clients.selectClients",
+        "quote": "The selected-client chips render outside the dialog bounds and are unclickable."
+      },
+      "route": "/users",
+      "role": "sysadmin",
+      "viewport": "mobile",
+      "locale": "he",
+      "locator": "getByTestId('client-multiselect')",
+      "steps": [
+        "Set language to Hebrew.",
+        "Resize to 375x812.",
+        "Open Edit user and select three clients."
+      ],
+      "expected": "Chips wrap inside the dialog; all remain clickable.",
+      "actual": "Chips extend past the right edge of the dialog; the third is not hittable.",
+      "evidence": {
+        "specFile": ".clarvis/scratch/qa-i18n-rtl-org-picker.spec.ts",
+        "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl/trace-77e903.zip",
+        "screenshots": [".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl/shot-77e903-he-375.png"],
+        "exitCode": 1
+      },
+      "determinism": { "runs": 3, "failures": 3, "verdict": "deterministic" },
+      "foundBy": "qa-i18n-rtl-01",
+      "verifiedBy": "qa-triage-01",
+      "createdAt": "2026-08-05T09:31:40.000Z",
+      "tracker": { "status": "none" }
+    },
+    {
+      "id": "f-2b41cc",
+      "axis": "rbac-scope",
+      "title": "Client Admin sees a System Admin row in the users table",
+      "severity": "high",
+      "tier": "PLAUSIBLE",
+      "tierReason": "Failed 2 of 3 cold runs. Suspected ordering dependency on the seeded fixture - filed as PLAUSIBLE, not CONFIRMED, pending a deterministic repro.",
+      "oracle": {
+        "type": "spec",
+        "citation": "CLAUDE.md#admin-restrictions",
+        "quote": "Client Admins cannot view/edit/lock/park System Admins."
+      },
+      "route": "/users",
+      "role": "clientadmin",
+      "locator": "getByRole('row').filter({ hasText: 'admin@example.com' })",
+      "steps": [
+        "Log in as a Client Admin.",
+        "Open /users and page through the list."
+      ],
+      "expected": "No System Admin rows are rendered.",
+      "actual": "The seeded System Admin appears on page 2 in 2 of 3 runs.",
+      "evidence": {
+        "specFile": ".clarvis/scratch/qa-rbac-scope-route-matrix.spec.ts",
+        "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope/trace-2b41cc.zip",
+        "exitCode": 1
+      },
+      "determinism": { "runs": 3, "failures": 2, "verdict": "flaky" },
+      "foundBy": "qa-rbac-scope-01",
+      "verifiedBy": "qa-triage-01",
+      "createdAt": "2026-08-05T09:35:11.000Z",
+      "tracker": { "status": "none" }
+    },
+    {
+      "id": "f-9aa017",
+      "axis": "happy-path",
+      "title": "Save button stays disabled after picking an organization",
+      "severity": "medium",
+      "tier": "DISCARDED",
+      "tierReason": "No oracle and no reproduction. qa-triage-02 could not reproduce from the artifacts (0/3); the original failure was a stale locator after the dialog re-rendered.",
+      "oracle": { "type": "none" },
+      "route": "/users",
+      "role": "sysadmin",
+      "locator": "getByRole('button', { name: 'Save' })",
+      "expected": "Save becomes enabled once an organization is selected.",
+      "actual": "Agent reported it stayed disabled; not reproducible.",
+      "evidence": {
+        "specFile": ".clarvis/scratch/qa-happy-path-org-assign.spec.ts",
+        "exitCode": 1
+      },
+      "determinism": { "runs": 3, "failures": 0, "verdict": "not-reproduced" },
+      "foundBy": "qa-happy-path-01",
+      "verifiedBy": "qa-triage-02",
+      "createdAt": "2026-08-05T09:29:55.000Z",
+      "tracker": { "status": "none" }
+    }
+  ],
+  "coverage": {
+    "routesVisited": 5,
+    "routesKnown": 7,
+    "rolesExercised": ["sysadmin", "clientadmin", "proctor"],
+    "localesExercised": ["en", "he", "ar", "de"],
+    "jsCoveragePct": 41.8
+  },
+  "agentRuns": [
+    { "id": "recon-boot-01", "role": "recon-boot", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.09 },
+    { "id": "recon-auth-01", "role": "recon-auth", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.12 },
+    { "id": "recon-data-01", "role": "recon-data", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.07 },
+    { "id": "qa-happy-path-01", "role": "qa-happy-path", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.41 },
+    { "id": "qa-rbac-scope-01", "role": "qa-rbac-scope", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.63 },
+    { "id": "qa-i18n-rtl-01", "role": "qa-i18n-rtl", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.38 },
+    { "id": "qa-triage-01", "role": "triage", "model": "claude-opus-5", "status": "ok", "usdEstimate": 0.71 },
+    { "id": "qa-triage-02", "role": "triage", "model": "claude-opus-5", "status": "ok", "usdEstimate": 0.55 }
+  ],
+  "truncation": [
+    "adversarial, responsive-a11y, resilience and visual axes were not requested for this run.",
+    "i18n-rtl skipped 2 checks: locales 'cs' and 'sk' have no seeded org fixtures.",
+    "Only the first 25 users per page were inspected on /users."
+  ]
+}

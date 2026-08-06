@@ -1,0 +1,11 @@
+{
+  "name": "clarvis-demo-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A small app with real auth, real roles and deliberately seeded bugs. Used as a target for recon and as the benchmark fixture.",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs"
+  }
+}
