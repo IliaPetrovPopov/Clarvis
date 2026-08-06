@@ -343,7 +343,11 @@ export async function planRun(opts: PlanOptions): Promise<{ plan: TestPlan; repo
     notes.push(`${axis} was missing from the plan entirely and has been deferred with that noted.`);
   }
 
+  // The agent is told which axes the guard refused, so it lists them too. Adding
+  // them again produced every refused axis twice in the plan.
+  const alreadyDeferred = new Set(deferred.map((d) => d.axis));
   for (const axis of guardSkipped) {
+    if (alreadyDeferred.has(axis)) continue;
     deferred.push({
       axis,
       why: "The safety guard refused this axis for this target.",

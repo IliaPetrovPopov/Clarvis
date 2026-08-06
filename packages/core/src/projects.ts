@@ -1,9 +1,8 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import path from "node:path";
 import { FLEET_KEYS, FLEETS, type FleetKey } from "./fleets.ts";
-import { listRunIds } from "./store.ts";
+import { clarvisHome, listRunIds } from "./store.ts";
 
 /**
  * The project registry.
@@ -47,7 +46,9 @@ export interface ProjectEntry {
 }
 
 export function projectsFile(): string {
-  return path.join(homedir(), ".clarvis", "projects.json");
+  // Same root as the state directories. If these two disagree, the dashboard
+  // and the engine end up looking at different things.
+  return path.join(clarvisHome(), "projects.json");
 }
 
 /**

@@ -1,13 +1,60 @@
 import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { Profile, Run } from "./types.ts";
 
-/** Per-project state lives here, inside the project being tested. */
+/**
+ * Where a project's Clarvis state lives.
+ *
+ * OUTSIDE the project, always. Each project gets an isolated directory under
+ * the user's home, keyed by a hash of its absolute path.
+ *
+ * This used to be a `.clarvis/` folder inside the repository being tested, and
+ * that was wrong in several ways at once. It put megabytes of Playwright traces
+ * into someone's working tree, made `git status` noisy in a repo that was
+ * clean, required a `.gitignore` edit to be tolerable, and risked committing
+ * agent transcripts - which contain retrieved text from the project itself.
+ *
+ * A testing tool should be able to run against a repository without leaving a
+ * mark on it. Nothing here writes inside the project. The only exception is
+ * spec promotion, which is opt-in precisely because it does.
+ */
+
+/** Legacy in-project directory. Detected so it can be reported, never written. */
 export const CLARVIS_DIR = ".clarvis";
 
+/**
+ * Root of all Clarvis state, outside every project.
+ *
+ * `CLARVIS_HOME` overrides it. That exists for the test suite above all: without
+ * it, running the tests writes into the user's real state directory and every
+ * run leaves debris in a place nobody thinks to look. It is also the honest way
+ * to keep two checkouts, or a scratch profile, from sharing one store.
+ */
+export function clarvisHome(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.CLARVIS_HOME?.trim();
+  return override ? path.resolve(override) : path.join(homedir(), ".clarvis");
+}
+
+/**
+ * A stable directory name for a project.
+ *
+ * Derived from the resolved absolute path, so renaming the folder keeps the
+ * identity and two projects sharing a basename never collide. Matches
+ * `projectId()` in projects.ts deliberately: the registry and the state
+ * directory must agree, or the dashboard and the engine end up looking at
+ * different things.
+ */
+export function projectSlug(projectRoot: string): string {
+  const resolved = path.resolve(projectRoot);
+  const hash = createHash("sha256").update(resolved).digest("hex").slice(0, 8);
+  const base = path.basename(resolved).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${base || "project"}-${hash}`;
+}
+
 export function clarvisPaths(projectRoot: string) {
-  const root = path.join(projectRoot, CLARVIS_DIR);
+  const root = path.join(clarvisHome(), "projects", projectSlug(projectRoot));
   return {
     root,
     profile: path.join(root, "profile.json"),
@@ -15,6 +62,22 @@ export function clarvisPaths(projectRoot: string) {
     scratch: path.join(root, "scratch"),
     auth: path.join(root, ".auth"),
   };
+}
+
+/**
+ * An old in-project state directory, if one is there.
+ *
+ * Reported rather than migrated: moving someone's files without asking is not
+ * this tool's business, and the old directory is harmless where it sits.
+ */
+export async function legacyStateDir(projectRoot: string): Promise<string | undefined> {
+  const legacy = path.join(projectRoot, CLARVIS_DIR);
+  try {
+    const info = await stat(legacy);
+    return info.isDirectory() ? legacy : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Sortable by name, so "latest" is just the last entry. */

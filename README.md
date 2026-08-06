@@ -93,25 +93,42 @@ those call a model, and a setup step should not quietly spend your allowance.
 
 ## Where everything is written
 
-Inside the project being tested, in `.clarvis/`:
+**Outside the project. Always.** Running Clarvis against a repository leaves no
+mark on it.
 
 ```
-profile.json     recon's answer: how to boot it, log in, what to never touch
-context.json     research's requirements, each traced to a quote
-plan.json        the lead's ranking and what it deferred
-runs/<id>/       run.json, drafts, verdict, Playwright traces and screenshots
-scratch/         the authored specs
-transcripts/     one JSONL per agent invocation, redacted
+~/.clarvis/
+  projects.json                    the registry: paths, names, team selections
+  projects/<name>-<hash>/
+    profile.json                   how to boot it, log in, what to never touch
+    context.json                   requirements, each traced to a quote
+    plan.json                      the lead's ranking and what it deferred
+    ledger.json                    what is already known and what was dismissed
+    runs/<id>/                     run.json, drafts, verdict, traces, screenshots
+    scratch/                       the authored specs
+    transcripts/                   one JSONL per agent invocation, redacted
 ```
 
-Only the project registry lives outside, in `~/.clarvis/projects.json`. It holds
-paths, names and team selections - never anything from a project's contents.
+The directory name is derived from the project's absolute path, so renaming the
+folder keeps its identity and two projects sharing a basename never collide.
+Each project's state is entirely separate from every other's.
 
-`.clarvis/` is untracked build output and it is not small: traces dominate,
-because triage re-runs each failing test three times in fresh browser processes.
-`clarvis init` offers to add it to `.gitignore`, and every run prunes to the last
-10 (`--keep-runs`). If graphify is enabled, its own `graphify-out/` also lives in
-the project.
+This used to live in a `.clarvis/` folder inside the repository, which was wrong
+in several ways at once: megabytes of Playwright traces in a working tree, a
+noisy `git status` in a repo that was clean, a `.gitignore` edit needed to make
+it tolerable, and agent transcripts - which contain retrieved text from the
+project - one `git add -A` away from being committed.
+
+`CLARVIS_HOME` moves the whole store. The test suite sets it to a temp
+directory, so running the tests never touches your real state.
+
+**The one exception is opt-in.** `clarvis run --promote` writes confirmed
+findings' specs into the project as regression tests, because that is the point
+of them. Nothing else ever writes inside a project.
+
+State is not small - traces dominate, since triage re-runs each failing test
+three times in fresh browser processes. Every run prunes to the last 10
+(`--keep-runs`).
 
 ## Safety
 
@@ -333,7 +350,7 @@ fixtures/           sample profile and run, used for UI dev
 
 ```sh
 pnpm install
-pnpm --filter @clarvis/core test    # 359 tests
+pnpm --filter @clarvis/core test    # 361 tests
 pnpm -r typecheck
 pnpm dev:ui                         # http://localhost:5273
 ```

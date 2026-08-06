@@ -183,3 +183,38 @@ test("a run that cannot afford every axis authors what it can and says so", asyn
   // Nothing may silently vanish: an axis that could not be afforded is reported.
   assert.equal(report.authored.length + report.rejected.length, 3);
 });
+
+test("running out of turns changes the instruction, not just the attempt", async () => {
+  // Three identical retries hit the same wall. Only telling it to stop
+  // exploring changes the outcome.
+  const dir = await scratch();
+  const prompts: string[] = [];
+
+  let call = 0;
+  const runner: AgentRunner = {
+    async invoke({ definition, prompt }) {
+      prompts.push(prompt);
+      if (call++ === 0) {
+        throw new Error("claude ran out of turns (60) before returning a result.");
+      }
+      return {
+        text: JSON.stringify({ source: GOOD, covers: [], untested: [] }),
+        model: definition.model,
+        usage: { inputTokens: 10, outputTokens: 10 },
+        usdReported: 0.01,
+      };
+    },
+  };
+
+  const report = await authorSpecs({
+    axes: ["rbac-scope"],
+    profile: PROFILE,
+    runner,
+    budget: new Budget({ maxUsd: 5 }),
+    scratchDir: dir,
+  });
+
+  assert.equal(report.authored.length, 1);
+  assert.match(prompts[1], /Stop exploring and write the spec now/);
+  assert.match(prompts[1], /shorter spec that runs beats a thorough one that never arrives/);
+});

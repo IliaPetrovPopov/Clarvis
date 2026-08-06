@@ -100,6 +100,22 @@ export function renderPlaywrightConfig(opts: {
   storageState?: string;
   viewport?: { width: number; height: number };
   retries?: number;
+  /**
+   * How long a single assertion may wait.
+   *
+   * Playwright's default is 5s, and that is not enough for a client-rendered
+   * application. Measured on a real Next.js app: `goto()` returned in 273ms and
+   * the first button became visible at 5,598ms - a 5.3 second gap in which the
+   * DOM is an empty shell. Every assertion timed out roughly 300ms short, and
+   * the run reported the resulting failures as findings about the application.
+   *
+   * This is hydration, not compilation, so it happens on every visit and no
+   * amount of warming the server removes it. The fix is to let an assertion
+   * wait long enough for the framework it is testing.
+   */
+  expectTimeoutMs?: number;
+  /** Ceiling for one test. Must exceed expectTimeoutMs by a clear margin. */
+  testTimeoutMs?: number;
 }): string {
   return `import { defineConfig } from "@playwright/test";
 
@@ -112,9 +128,17 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: true,
   retries: ${opts.retries ?? 0},
+  // Generous on purpose: a client-rendered app can take seconds to hydrate, and
+  // an assertion that gives up first produces a finding about the harness.
+  timeout: ${opts.testTimeoutMs ?? 90_000},
+  expect: { timeout: ${opts.expectTimeoutMs ?? 20_000} },
   reporter: [["json", { outputFile: ${JSON.stringify(path.join(opts.outputDir, "report.json"))} }]],
   use: {
     baseURL: ${JSON.stringify(opts.baseURL)},
+    // Wait for the network to settle before a test body runs, so a spec does
+    // not begin against a shell that is still fetching its own content.
+    navigationTimeout: ${opts.testTimeoutMs ?? 90_000},
+    actionTimeout: ${opts.expectTimeoutMs ?? 20_000},
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "off",
@@ -187,6 +211,8 @@ export async function runAxisSpecs(opts: {
   specFiles?: string[];
   /** Run only tests whose title matches. Used by triage to re-run one test. */
   grep?: string;
+  expectTimeoutMs?: number;
+  testTimeoutMs?: number;
   outputDir: string;
   baseURL: string;
   storageState?: string;
@@ -207,6 +233,8 @@ export async function runAxisSpecs(opts: {
       testMatch: opts.specFiles?.length ? opts.specFiles : [`${opts.axisKey}-*.spec.ts`],
       outputDir: opts.outputDir,
       storageState: opts.storageState,
+      expectTimeoutMs: opts.expectTimeoutMs,
+      testTimeoutMs: opts.testTimeoutMs,
     }),
     "utf8",
   );

@@ -6,6 +6,7 @@ import type { Finding, Profile, Tier } from "../types.ts";
 import type { Budget } from "./budget.ts";
 import { getAgent } from "./definitions.ts";
 import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
+import { applyClusterVerdict, clusterFindings, type ClusterResult } from "./cluster.ts";
 
 /**
  * Triage: try to make each finding go away.
@@ -180,25 +181,45 @@ export async function triageFindings(opts: TriageOptions): Promise<{
   outcomes: TriageOutcome[];
   agentRuns: Array<AgentResult<unknown>>;
   usdEstimate: number;
+  clusters: ClusterResult;
 }> {
   const attempts = opts.attempts ?? 3;
   const outcomes: TriageOutcome[] = [];
   const agentRuns: Array<AgentResult<unknown>> = [];
   const log = opts.log ?? (() => {});
 
-  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 3, opts.findings.length || 1));
+  // Failures that share a cause are investigated once. Nine specs failing
+  // because the app had not rendered is one problem, and grading it nine times
+  // costs nine times as much while telling a reader nine stories about it.
+  const clusters = clusterFindings(opts.findings);
+
+  // Only representatives are triaged; members inherit the verdict afterwards.
+  const toTriage = [
+    ...clusters.clusters.map((c) => c.representative),
+    ...clusters.singletons,
+  ];
+
+  if (clusters.clusters.length) {
+    log(
+      `${opts.findings.length} failure(s) reduced to ${toTriage.length} distinct cause(s) ` +
+        `- every failure is still reported`,
+    );
+  }
+  if (clusters.environmental) log(clusters.environmental.note);
+
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 3, toTriage.length || 1));
 
   // Findings are independent: each re-runs one test in its own process against
   // an app that is already up. Results are collected by index so the report
   // reads in the same order however they finish.
-  const ordered: Array<TriageOutcome | undefined> = new Array(opts.findings.length).fill(undefined);
+  const ordered: Array<TriageOutcome | undefined> = new Array(toTriage.length).fill(undefined);
   let cursor = 0;
 
   const worker = async (): Promise<void> => {
     for (;;) {
       const i = cursor++;
-      if (i >= opts.findings.length) return;
-      ordered[i] = await triageOne(opts.findings[i], i);
+      if (i >= toTriage.length) return;
+      ordered[i] = await triageOne(toTriage[i], i);
     }
   };
 
@@ -358,9 +379,17 @@ export async function triageFindings(opts: TriageOptions): Promise<{
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
   outcomes.push(...ordered.filter((o): o is TriageOutcome => Boolean(o)));
 
+  // Members inherit their representative's verdict. They keep their own entry
+  // and say which cluster decided them, so nothing is hidden - only the number
+  // of investigations changed, never the number of findings.
+  for (const cluster of clusters.clusters) {
+    applyClusterVerdict(cluster, cluster.representative);
+  }
+
   return {
     outcomes,
     agentRuns,
     usdEstimate: agentRuns.reduce((sum, r) => sum + r.usdEstimate, 0),
+    clusters,
   };
 }

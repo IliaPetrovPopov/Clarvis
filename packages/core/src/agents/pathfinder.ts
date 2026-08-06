@@ -206,6 +206,13 @@ export interface ReconOptions {
   commit?: string;
   survey?: Survey;
   /**
+   * How the application renders, measured against a running instance.
+   *
+   * Recorded on the profile because it changes how every spec must be written:
+   * a client-rendered app needs assertions that wait for hydration.
+   */
+  rendering?: { rendering: "server-rendered" | "client-rendered" | "unknown"; hydrationMs?: number };
+  /**
    * Optional code graph. When present its hubs become risk hotspots - the
    * places where a change reaches furthest, which is a fact about the code
    * rather than an opinion about it.
@@ -530,6 +537,8 @@ export async function runRecon(opts: ReconOptions): Promise<{ profile: Profile; 
     stack: {
       ...existing?.stack,
       packageManager: survey.packageManager ?? existing?.stack?.packageManager,
+      rendering: opts.rendering?.rendering ?? existing?.stack?.rendering,
+      hydrationMs: opts.rendering?.hydrationMs ?? existing?.stack?.hydrationMs,
     },
     surface: existing?.surface,
     risk: hotspots?.length ? { ...existing?.risk, hotspots } : existing?.risk,

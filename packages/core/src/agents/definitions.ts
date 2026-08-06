@@ -145,8 +145,11 @@ human exactly where testing will be blind.`.trim(),
     purpose: "Works out how to start the project, from its manifests and docs.",
     tools: ["read", "grep", "glob"],
     model: "claude-sonnet-5",
-    maxTurns: 6,
-    maxUsd: 0.4,
+    // A real application takes more than a handful of reads to understand, and
+    // running out returns nothing at all - so a tight ceiling here costs the
+    // whole attempt rather than producing a shorter answer.
+    maxTurns: 25,
+    maxUsd: 0.5,
     systemPrompt: `
 You determine how to start this project and what URL it serves.
 
@@ -175,8 +178,10 @@ at an app that is not there.`.trim(),
     purpose: "Identifies the login mechanism and the roles worth testing.",
     tools: ["read", "grep", "glob"],
     model: "claude-sonnet-5",
-    maxTurns: 6,
-    maxUsd: 0.4,
+    // Credentials are never in a manifest, so this role in particular has to go
+    // looking. It was the one that ran out on the first real project.
+    maxTurns: 30,
+    maxUsd: 0.6,
     systemPrompt: `
 You identify how this application authenticates and which roles exist.
 
@@ -215,8 +220,8 @@ A fabricated credential produces a run that silently tested nothing.`.trim(),
     purpose: "Finds hosts that must never be written to.",
     tools: ["read", "grep", "glob"],
     model: "claude-sonnet-5",
-    maxTurns: 6,
-    maxUsd: 0.3,
+    maxTurns: 25,
+    maxUsd: 0.5,
     systemPrompt: `
 You find every host, database and environment this project can reach, and
 classify each as disposable or not.
@@ -318,10 +323,12 @@ Group by cause, not by wording. Three fixes for "wrong client sees data",
     purpose: "Writes runnable Playwright specs for one test axis.",
     tools: ["read", "grep", "glob"],
     model: "claude-sonnet-5",
-    // Reading enough of an app to write real selectors, then composing a full
-    // spec, does not fit in a dozen turns - and running out returns nothing at
-    // all, so a tight ceiling here costs a whole attempt rather than truncating.
-    maxTurns: 30,
+    // Reading enough of a real application to write true selectors, and then
+    // composing a whole spec file, is the largest single task any agent here
+    // does. Running out returns NOTHING - so a ceiling that is too low costs the
+    // entire attempt, and three attempts in a row hit the same wall. Measured on
+    // a production Next.js app: 30 was not enough.
+    maxTurns: 60,
     maxUsd: 1.2,
     systemPrompt: `
 You write real Playwright specs for one testing axis.

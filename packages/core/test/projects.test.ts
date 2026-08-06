@@ -1,14 +1,36 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { projectId, projectsFile } from "../src/projects.ts";
 
-test("the registry lives in the home directory, never inside a project", () => {
+test("the registry lives outside every project, and beside the state it indexes", async () => {
+  // A per-project registry would leak projects to each other, and a registry
+  // that disagreed with the state root would have the dashboard and the engine
+  // looking at different things.
+  const { clarvisHome } = await import("../src/store.ts");
   const file = projectsFile();
-  assert.ok(file.startsWith(homedir()), "a per-project registry would leak projects to each other");
+
+  assert.ok(file.startsWith(clarvisHome()), "the registry must sit under the state root");
   assert.equal(path.basename(file), "projects.json");
+  assert.equal(file.includes("/node_modules/"), false);
+});
+
+test("state is keyed per project and never written inside one", async () => {
+  // The requirement this whole layout exists for: running against a repository
+  // must leave no mark on it.
+  const { clarvisPaths, projectSlug } = await import("../src/store.ts");
+
+  const a = clarvisPaths("/tmp/one/app");
+  const b = clarvisPaths("/tmp/two/app");
+
+  assert.notEqual(a.root, b.root, "two projects sharing a basename must not collide");
+  assert.equal(a.root.startsWith("/tmp/one/app"), false, "nothing may live inside the project");
+  assert.equal(b.root.startsWith("/tmp/two/app"), false);
+
+  // Renaming the folder keeps identity; a trailing slash is the same project.
+  assert.equal(projectSlug("/tmp/one/app"), projectSlug("/tmp/one/app/"));
 });
 
 test("ids are derived from the path, so renaming keeps identity", () => {

@@ -3,20 +3,21 @@ import path from "node:path";
 import { CLARVIS_DIR, clarvisPaths, listRunIds } from "./store.ts";
 
 /**
- * Keeping `.clarvis/` from becoming a problem in someone else's repository.
+ * Housekeeping for a project's state directory.
  *
- * Everything Clarvis produces is written INSIDE the project being tested, which
- * is right - a run belongs with the code it describes, and a shared cache keyed
- * by path would be worse in every way. But it has two consequences that have to
- * be handled rather than discovered:
+ * State now lives outside the project, under `~/.clarvis/projects/<slug>/`, so
+ * the `.gitignore` problem this file was originally written for no longer
+ * exists - a run leaves no mark on the repository at all.
  *
- *   1. It is untracked build output sitting in a working tree. Nine runs of a
- *      two-file demo came to 14MB, almost all of it Playwright traces from
- *      triage, which re-runs each failing test three times in fresh processes.
- *      On a real application that is not a rounding error.
+ * What remains is size. Nine runs of a two-file demo came to 14MB, almost all
+ * of it Playwright traces from triage, which re-runs each failing test three
+ * times in fresh processes. That is not a rounding error on a real
+ * application, and it is now accumulating in the user's home directory where
+ * nobody will think to look at it.
  *
- *   2. Nobody's `.gitignore` knows about it, so the first run makes `git status`
- *      noisy in a repo that was clean.
+ * The gitignore helpers are kept because promotion still writes into the
+ * repository, and that is the one thing a project may reasonably want ignored
+ * until it is reviewed.
  */
 
 /** What a project's .gitignore needs for Clarvis to be invisible to git. */

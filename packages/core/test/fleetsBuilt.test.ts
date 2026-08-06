@@ -331,3 +331,26 @@ test("limits are never empty, because every run misses something", async () => {
   });
   assert.ok(report.limits.length > 0);
 });
+
+test("a guard-refused axis appears in the plan once, not twice", async () => {
+  // The agent is told which axes the guard refused, so it lists them itself.
+  // Appending them again put every refused axis in the plan twice.
+  const { plan } = await planRun({
+    scope: SCOPE,
+    profile: PROFILE,
+    guardSkipped: ["happy-path", "adversarial"],
+    runner: replying({
+      axes: [{ axis: "visual", why: "styling changed" }],
+      deferred: [
+        { axis: "happy-path", why: "Refused by the guard.", cost: "flows untested" },
+        { axis: "adversarial", why: "Refused by the guard.", cost: "inputs untested" },
+      ],
+      rationale: "x",
+    }),
+    budget: new Budget({ maxUsd: 2 }),
+  });
+
+  const axes = plan.deferred.map((d) => d.axis);
+  assert.equal(axes.length, new Set(axes).size, "no axis may be deferred twice");
+  assert.equal(axes.filter((a) => a === "happy-path").length, 1);
+});

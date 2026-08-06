@@ -150,6 +150,18 @@ function renderPlan(plan: AxisPlan, profile: Profile): string {
     AXIS_BRIEFS[plan.axis],
     "",
     `BASE URL: ${profile.boot.url} (use RELATIVE paths - baseURL is configured for you)`,
+    profile.stack?.rendering === "client-rendered"
+      ? `RENDERING: client-rendered. The server returns a shell and the content appears ` +
+        `${profile.stack.hydrationMs ? `about ${Math.round(profile.stack.hydrationMs / 100) / 10}s ` : ""}` +
+        `later, after hydration.\n` +
+        `  - Never assert on the response body: it does not contain the page.\n` +
+        `  - After navigating, wait for something real before asserting anything else.\n` +
+        `  - Prefer web-first assertions (expect(locator).toBeVisible()) which retry, over\n` +
+        `    reading textContent or counting elements, which do not.`
+      : profile.stack?.rendering === "server-rendered"
+        ? `RENDERING: server-rendered. The first response contains the page, so asserting on the ` +
+          `response body is valid.`
+        : "",
     profile.auth.loginUrl ? `LOGIN: ${profile.auth.loginUrl} (${profile.auth.mode})` : "",
     roles.length
       ? `ROLES:\n${roles
@@ -246,7 +258,17 @@ export async function authorSpecs(opts: AuthorOptions): Promise<CrucibleReport> 
       agentRuns.push(result as AgentResult<unknown>);
 
       if (result.status !== "ok" || !result.data) {
-        lastViolations = [`The author did not return a usable spec (${result.status}).`];
+        // Running out of turns is not the same as writing a bad spec, and
+        // retrying with the same instruction just hits the same wall. Telling it
+        // to stop exploring is the only thing that changes the outcome.
+        const ranOut = /ran out of turns/i.test(result.error ?? "");
+        lastViolations = ranOut
+          ? [
+              "You ran out of turns before returning anything, so nothing was written.",
+              "Stop exploring and write the spec now from what you already know.",
+              "Read at most two more files. A shorter spec that runs beats a thorough one that never arrives.",
+            ]
+          : [`The author did not return a usable spec (${result.status}).`];
         continue;
       }
 

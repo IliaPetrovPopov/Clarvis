@@ -4,6 +4,9 @@ import { readdir, mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   AXES,
   bootAndVerify,
+  warmUp,
+  warmRoutes,
+  measureRendering,
   decideGuard,
   applyGuardToAxes,
   loadProfile,
@@ -28,8 +31,7 @@ import {
   addProject,
   removeProject,
   GraphConnector,
-  checkIgnored,
-  addToGitignore,
+  legacyStateDir,
   pruneRuns,
   formatBytes,
   runMutationTesting,
@@ -69,6 +71,7 @@ import {
   authorSpecs,
   findingsFromReport,
   triageFindings,
+  describeClusters,
   planRun,
   plannedAxisOrder,
   draftTickets,
@@ -233,7 +236,7 @@ export async function main(argv: string[]): Promise<void> {
       "keep-runs": { type: "string" },
       "max-mutants": { type: "string" },
       "no-restart": { type: "boolean" },
-      "no-promote": { type: "boolean" },
+      promote: { type: "boolean" },
       replace: { type: "boolean" },
       note: { type: "string" },
       by: { type: "string" },
@@ -336,19 +339,14 @@ export async function main(argv: string[]): Promise<void> {
         console.log(`  DEGRADED   ${FLEETS[d.fleet].codename} without ${FLEETS[d.missing].codename}: ${d.effect}`);
       }
 
-      // Everything Clarvis writes lands in .clarvis/ inside this repository.
-      // Offering rather than doing it: editing a file in someone's project is
-      // exactly what a tool should not do quietly, however obviously right.
-      const ignore = await checkIgnored(projectRoot);
-      if (ignore.isRepo && !ignore.ignored) {
+      // Nothing is written inside the project, so there is nothing to ignore.
+      // An older run may have left one behind, and that is worth saying once.
+      const legacy = await legacyStateDir(projectRoot);
+      if (legacy) {
         console.log("");
-        console.log(`  Clarvis writes runs, traces and transcripts to ${projectRoot}/.clarvis/`);
-        console.log(`  That is untracked build output - a few MB per run - and .gitignore`);
-        console.log(`  does not mention it yet.`);
-        if (await confirm("Add .clarvis/ to .gitignore?", true)) {
-          const added = await addToGitignore(projectRoot);
-          console.log(`  ${added.added ? "added to" : "already in"}   ${added.path}`);
-        }
+        console.log(`  note       an old in-project state directory is at ${legacy}`);
+        console.log(`             state now lives in ${clarvisPaths(projectRoot).root}`);
+        console.log(`             the old one is unused and safe to delete`);
       }
 
       const hasProfile = await loadProfile(projectRoot)
@@ -412,9 +410,17 @@ export async function main(argv: string[]): Promise<void> {
       const registered = await resolveProject(projectRoot).catch(() => undefined);
       const graph = registered?.useGraph ? new GraphConnector({ projectRoot }) : undefined;
 
+      // Measured against a running instance when there is one. A profile that
+      // records how the app renders is what stops the spec author writing
+      // assertions the framework cannot satisfy.
+      const probeUrl = str(values.url) ?? existing?.boot?.url;
+      const rendering = probeUrl ? await measureRendering(probeUrl).catch(() => undefined) : undefined;
+      if (rendering) console.log(`  rendering  ${rendering.rendering} - ${rendering.note}`);
+
       const { profile, report } = await runRecon({
         projectRoot,
         projectName: str(values.name),
+        rendering,
         graph,
         runner,
         budget: new Budget({ maxUsd: Number(str(values["max-usd"]) ?? 2) }),
@@ -1028,7 +1034,7 @@ export async function main(argv: string[]): Promise<void> {
         author: values["no-author"] !== true,
         triage: values["no-triage"] !== true,
         keepRuns: Number(str(values["keep-runs"]) ?? 10),
-        promote: values["no-promote"] !== true,
+        promote: values.promote === true,
         replacePromoted: values.replace === true,
         baseRef: str(values.base),
         maxUsd: Number(str(values["max-usd"]) ?? 6),
@@ -1102,6 +1108,14 @@ async function gradeFindings(opts: {
       transcriptDir: path.join(opts.paths.root, "transcripts"),
       log: (l) => console.log(`  ${l}`),
     });
+
+    for (const line of describeClusters(triage.clusters)) console.log(`  ${line}`);
+
+    // An environmental cluster means the run itself is suspect, so it goes on
+    // the record rather than being printed once and lost.
+    if (triage.clusters.environmental) {
+      run.truncation!.push(triage.clusters.environmental.note);
+    }
 
     for (const o of triage.outcomes) {
       if (o.tierAfter !== o.tierBefore) {
@@ -1367,6 +1381,60 @@ async function runCommand(opts: {
     return;
   }
 
+  /* --- 3b. Warm up, so no spec races a compiler ---------------------------- */
+
+  // A dev server answers 200 while still building the route. The first real run
+  // asserted against a loading shell and produced nine findings, all false.
+  // Every route the specs will visit, not just the base URL: each one compiles
+  // on its own first request, and warming only `/` left `/login` racing a
+  // compiler exactly as before.
+  // Re-measured every run: a profile can be stale, and the cost of being wrong
+  // here is a report full of findings about the harness.
+  const measured = await measureRendering(profile.boot.url).catch(() => undefined);
+  if (measured && measured.rendering !== profile.stack?.rendering) {
+    console.log(`  rendering ${measured.rendering} - ${measured.note}`);
+    profile.stack = { ...profile.stack, rendering: measured.rendering, hydrationMs: measured.hydrationMs };
+  }
+
+  const routeWarm = await warmRoutes(
+    profile,
+    plan?.axes.flatMap((a) => a.routes) ?? [],
+    { log: (l) => console.log(`  warmup   ${l}`) },
+  );
+  // For a client-rendered app a cold route means only that the route was
+  // requested (which compiles it), not that anything is wrong. Reported as a
+  // note rather than a warning, because the alternative is a warning on every
+  // route of every SPA.
+  const clientRendered = profile.stack?.rendering === "client-rendered";
+  for (const c of routeWarm.cold) {
+    if (clientRendered) continue;
+    run.truncation!.push(`${c.route} never rendered during warm-up: ${c.note}`);
+    console.log(`  warmup   ${c.route} did not render - assertions against it may fail spuriously`);
+  }
+  if (clientRendered && routeWarm.cold.length) {
+    console.log(`  warmup   ${routeWarm.cold.length} route(s) requested (client-rendered, so compiled not verified)`);
+  }
+
+  // A client-rendered app can never satisfy a fetch-based check: the page only
+  // exists once a browser has run its JavaScript. Blocking on that would refuse
+  // to test every SPA, so the gate applies only where the server claims to send
+  // a page and then does not.
+  const warm =
+    profile.stack?.rendering === "client-rendered"
+      ? { rendered: true, ms: 0 }
+      : await warmUp(profile.boot.url, { log: (l) => console.log(`  warmup   ${l}`) });
+
+  if (!warm.rendered) {
+    run.status = "blocked";
+    run.finishedAt = new Date().toISOString();
+    run.truncation!.push(warm.note ?? "The application never rendered.");
+    await boot.stop();
+    await writeRun(projectRoot, run);
+    console.log(`\n  BLOCKED - ${warm.note}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   /* --- 4. Axes, each in its own browser process ---------------------------- */
 
   const dir = await runDir(projectRoot, runId);
@@ -1624,7 +1692,8 @@ async function runCommand(opts: {
 
   // A spec that caught something is a regression test. Keeping it is what makes
   // the tool compound rather than start from nothing every run.
-  if (opts.promote !== false && run.findings.some((f) => f.tier === "CONFIRMED")) {
+  // Opt-in, because it is the only thing that writes inside the project.
+  if (opts.promote === true && run.findings.some((f) => f.tier === "CONFIRMED")) {
     const promoted = await promote({
       projectRoot,
       run,

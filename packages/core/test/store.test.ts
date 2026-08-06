@@ -72,3 +72,196 @@ test("the boot blocker names the directory that actually exists", async () => {
   assert.ok(boot.blockers.some((b) => b.includes(".clarvis/profile.json")));
   assert.equal(boot.blockers.some((b) => b.includes(".qa/")), false);
 });
+
+test("a loading shell is not a rendered application", async () => {
+  // A dev server answers 200 the moment it listens, then compiles the route on
+  // first request. Nine findings from the first real run were all false because
+  // every spec asserted against the shell it served meanwhile.
+  const { looksRendered } = await import("../src/boot.ts");
+
+  assert.equal(looksRendered("<html><body><div>Loading</div></body></html>"), false);
+  assert.equal(looksRendered("<html><body>loading...</body></html>"), false);
+  assert.equal(looksRendered("<html><body></body></html>"), false);
+
+  // Scripts do not count as content: a shell is mostly script.
+  assert.equal(
+    looksRendered('<html><body><div id="root"></div><script>lots and lots of javascript here</script></body></html>'),
+    false,
+  );
+
+  // A real page carries substantially more than a shell does. This is the
+  // actual login markup, trimmed.
+  assert.equal(
+    looksRendered(
+      "<html><body><h1>Welcome Back</h1><p>Sign in to continue to Lumira</p>" +
+        "<form><label>Email</label><input name='email'><label>Password</label>" +
+        "<input name='password'><button>Login</button></form>" +
+        "<p>Don't have an account? Sign up</p></body></html>",
+    ),
+    true,
+  );
+});
+
+test("every route the specs will visit is warmed, not just the base URL", async () => {
+  // Two runs failed the same way: the base URL was warm and `/login` - which is
+  // where every spec actually navigates - compiled on its own first request,
+  // so the assertions raced a compiler exactly as before.
+  const { warmRoutes } = await import("../src/boot.ts");
+
+  const asked: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    asked.push(String(url));
+    return new Response(
+      "<html><body><h1>Welcome Back</h1><p>Sign in to continue to the app</p>" +
+        "<form><input name='email'><button>Login</button></form></body></html>",
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await warmRoutes(
+      {
+        schemaVersion: 1,
+        project: { name: "p", root: "/tmp/p" },
+        boot: { url: "http://localhost:3100", verified: true },
+        auth: { mode: "cookie-jwt", loginUrl: "/login", roles: [] },
+        data: { disposable: false, safeTargets: [] },
+        surface: { routes: [{ path: "/signup" }] },
+      },
+      ["/pricing"],
+    );
+
+    assert.ok(asked.some((u) => u.endsWith("/login")), "the login route must be warmed");
+    assert.ok(asked.some((u) => u.endsWith("/signup")), "mapped routes must be warmed");
+    assert.ok(asked.some((u) => u.endsWith("/pricing")), "planned routes must be warmed");
+    assert.deepEqual(result.cold, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a shell whose only text is its title is not a rendered page", async () => {
+  // The tag stripper counted head content as body text, so a 51-character
+  // <title> cleared the length threshold and a marketing shell read as fully
+  // rendered - defeating the entire purpose of the check.
+  const { looksRendered } = await import("../src/boot.ts");
+
+  assert.equal(
+    looksRendered(
+      "<html><head><title>Lumira - Find and Book Professional Photographers</title></head>" +
+        '<body><div id="root"></div></body></html>',
+    ),
+    false,
+  );
+});
+
+test("interactive controls are what make a page testable", async () => {
+  // A spec drives controls. Prose without them is not something a test can work
+  // against, and a marketing shell is exactly that.
+  const { looksRendered } = await import("../src/boot.ts");
+
+  assert.equal(
+    looksRendered("<html><body><form><input name='email'><button>Login</button></form></body></html>"),
+    true,
+  );
+
+  // Long static prose is legitimate, and counts on length alone.
+  assert.equal(looksRendered(`<html><body><article>${"word ".repeat(60)}</article></body></html>`), true);
+
+  // Short prose with no controls is a shell.
+  assert.equal(looksRendered("<html><body><p>Almost nothing here at all today</p></body></html>"), false);
+});
+
+test("a page built in the browser is called client-rendered, not unknown", async () => {
+  // `fetch` runs no JavaScript, so an SPA can never satisfy a fetch-based
+  // check. Calling that "unknown" would block every SPA from being tested.
+  const { measureRendering } = await import("../src/boot.ts");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response('<html><head><title>App</title></head><body><div id="root"></div></body></html>')) as typeof fetch;
+
+  try {
+    const result = await measureRendering("http://localhost:1/");
+    assert.equal(result.rendering, "client-rendered");
+    assert.match(result.note, /response body proves nothing/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a server-rendered page is recognised immediately", async () => {
+  const { measureRendering } = await import("../src/boot.ts");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      "<html><body><h1>Welcome</h1><form><input name='email'><button>Go</button></form></body></html>",
+    )) as typeof fetch;
+
+  try {
+    const result = await measureRendering("http://localhost:1/");
+    assert.equal(result.rendering, "server-rendered");
+    assert.equal(result.hydrationMs, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a readyCheck on a different origin is ignored, not obeyed", async () => {
+  // An earlier recon left readyCheck on port 3000 while boot.url was corrected
+  // to 3100. Both servers were up, so nothing failed loudly - boot verified one
+  // application and every spec drove another.
+  const { bootAndVerify } = await import("../src/boot.ts");
+
+  const seen: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    seen.push(String(url));
+    return new Response("ok", { status: 200 });
+  }) as typeof fetch;
+
+  const logged: string[] = [];
+  try {
+    await bootAndVerify(
+      {
+        schemaVersion: 1,
+        project: { name: "p", root: "/tmp/p" },
+        boot: { url: "http://localhost:3100", readyCheck: "http://localhost:3000", verified: false },
+        auth: { mode: "none", roles: [] },
+        data: { disposable: false, safeTargets: [] },
+      },
+      { log: (l) => logged.push(l) },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.ok(seen.every((u) => u.includes("3100")), "only the real target may be probed");
+  assert.ok(logged.some((l) => /different origin/.test(l)), "the mismatch must be reported, not silent");
+});
+
+test("a readyCheck on the same origin is honoured", async () => {
+  const { bootAndVerify } = await import("../src/boot.ts");
+
+  const seen: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    seen.push(String(url));
+    return new Response("ok", { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await bootAndVerify({
+      schemaVersion: 1,
+      project: { name: "p", root: "/tmp/p" },
+      boot: { url: "http://localhost:3100", readyCheck: "http://localhost:3100/health", verified: false },
+      auth: { mode: "none", roles: [] },
+      data: { disposable: false, safeTargets: [] },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.ok(seen[0].endsWith("/health"), "a cheaper endpoint on the same app is the point of it");
+});

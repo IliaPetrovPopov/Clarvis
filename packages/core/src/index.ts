@@ -37,6 +37,7 @@ export * from "./agents/specGate.ts";
 export * from "./agents/crucible.ts";
 export * from "./benchmark.ts";
 export * from "./agents/triage.ts";
+export * from "./agents/cluster.ts";
 export * from "./agents/vector.ts";
 export * from "./agents/dispatch.ts";
 export * from "./agents/clearance.ts";
