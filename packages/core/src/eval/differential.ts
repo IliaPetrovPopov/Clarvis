@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { bootAndVerify } from "../boot.ts";
 import { runAxisSpecs } from "../runner.ts";
 import type { Axis, Finding, Profile } from "../types.ts";
@@ -76,8 +77,10 @@ async function git(args: string[], cwd: string): Promise<{ ok: boolean; stdout: 
 export interface Worktree {
   dir: string;
   ref: string;
-  /** Runtime files linked in from the project, since git does not carry them. */
+  /** Runtime files brought in from the project, since git does not carry them. */
   linked: string[];
+  /** How each one was brought in: clone, symlink or copy. */
+  how: Record<string, string>;
   remove: () => Promise<void>;
 }
 
@@ -105,19 +108,70 @@ const RUNTIME_DEPENDENCIES = [
   ".env.test.local",
 ];
 
+/**
+ * Make a file or directory available inside the checkout.
+ *
+ * A symlink is the obvious approach and is not enough: bundlers routinely
+ * refuse to follow one that leaves the project root - "Symlink node_modules is
+ * invalid, it points out of the filesystem root" - so the base fails to build
+ * even though everything is present.
+ *
+ * A copy-on-write clone looks like a real directory to every tool while sharing
+ * blocks with the original, so it costs no disk and, on a modern filesystem, no
+ * measurable time: 200MB clones in single-digit milliseconds. Where the
+ * filesystem cannot do that, a symlink is still better than nothing, and a
+ * plain copy is the last resort.
+ *
+ * Strategies are tried in order and the one that worked is reported, so a slow
+ * run is explicable rather than mysterious.
+ */
+async function materialise(
+  source: string,
+  target: string,
+): Promise<{ how: "clone" | "symlink" | "copy" | "failed"; error?: string }> {
+  const run = (file: string, args: string[]) =>
+    new Promise<boolean>((resolve) => {
+      const child = spawn(file, args, { stdio: "ignore" });
+      child.on("error", () => resolve(false));
+      child.on("close", (code) => resolve(code === 0));
+    });
+
+  // Copy-on-write: `-c` on macOS, `--reflink` on Linux. Both fail cleanly on a
+  // filesystem that cannot do it, which is what makes this safe to try first.
+  const cloneFlag = process.platform === "darwin" ? "-c" : "--reflink=always";
+  if (await run("cp", ["-R", cloneFlag, source, target])) return { how: "clone" };
+
+  const { symlink, cp } = await import("node:fs/promises");
+  try {
+    await symlink(source, target);
+    return { how: "symlink" };
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    // Correct everywhere, and slow for a large tree - hence last.
+    await cp(source, target, { recursive: true });
+    return { how: "copy" };
+  } catch (e) {
+    return { how: "failed", error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 async function linkRuntimeDependencies(
   projectRoot: string,
   worktreeDir: string,
-): Promise<{ linked: string[]; missing: string[] }> {
-  const { symlink, stat: statFile } = await import("node:fs/promises");
+): Promise<{ linked: string[]; missing: string[]; how: Record<string, string> }> {
+  const { stat: statFile } = await import("node:fs/promises");
   const linked: string[] = [];
   const missing: string[] = [];
+  const how: Record<string, string> = {};
 
   for (const name of RUNTIME_DEPENDENCIES) {
     const source = path.join(projectRoot, name);
 
-    // Only link what exists, and never overwrite something the checkout already
-    // has - a committed .env.example must win over a link.
+    // Only bring across what exists, and never overwrite something the checkout
+    // already has - a committed file must win over anything copied in.
     const exists = await statFile(source).then(() => true).catch(() => false);
     if (!exists) continue;
 
@@ -125,15 +179,17 @@ async function linkRuntimeDependencies(
     const occupied = await statFile(target).then(() => true).catch(() => false);
     if (occupied) continue;
 
-    try {
-      await symlink(source, target);
-      linked.push(name);
-    } catch {
+    const result = await materialise(source, target);
+    if (result.how === "failed") {
       missing.push(name);
+      continue;
     }
+
+    linked.push(name);
+    how[name] = result.how;
   }
 
-  return { linked, missing };
+  return { linked, missing, how };
 }
 
 /**
@@ -167,6 +223,7 @@ export async function createWorktree(projectRoot: string, ref: string): Promise<
     dir,
     ref: resolved.stdout.trim(),
     linked: deps.linked,
+    how: deps.how,
     remove: async () => {
       // Prune through git as well as deleting: a stale worktree registration
       // makes every later attempt on the same ref fail.
@@ -289,46 +346,78 @@ export async function runDifferential(opts: DifferentialOptions): Promise<Differ
     worktree = await createWorktree(opts.projectRoot, opts.baseRef);
     log(`base ${opts.baseRef} checked out at ${worktree.dir}`);
     if (worktree.linked.length) {
-      log(`linked from the project: ${worktree.linked.join(", ")}`);
+      log(
+        `brought in from the project: ${worktree.linked
+          .map((n) => `${n} (${worktree!.how[n]})`)
+          .join(", ")}`,
+      );
     }
 
     const basePort = opts.basePort ?? pickBasePort(opts.profile.boot.url);
     const baseUrl = withPort(opts.profile.boot.url, basePort);
 
-    // A boot command may hardcode its port - `next dev -p 3100` is the common
-    // shape - in which case PORT in the environment does nothing and the base
+    // A boot command often names its own port, in which case PORT in the
+    // environment does nothing and the base
     // tries to bind the port the branch is already using, then exits.
     // Rewriting the flag is the only thing that actually moves it.
-    // The port usually lives inside the npm script rather than in the command a
-    // profile records, so the script is resolved before rewriting it.
+    /*
+     * Exactly one mechanism may move a port.
+     *
+     * There are two, and they must never both apply: rewriting the boot command
+     * moves the port named there, and the preload shim moves every port the
+     * process binds. Running both offset the same port twice - the command said
+     * 4100, the shim added another 1000, and the application came up on 5100
+     * while the comparison waited on 4100 and timed out. It had started
+     * perfectly.
+     *
+     * The shim is preferred wherever it can apply, because it is the only one
+     * that reaches a port hardcoded in a source file, and it moves every port
+     * an application binds rather than the one that happens to be written down.
+     * Rewriting the command is the fallback for a process the shim cannot reach.
+     */
     const original = opts.profile.boot.cmd ?? "";
-    const { command: expanded, resolved } = await resolveScriptCommand(original, opts.projectRoot);
-    const baseCmd = retargetPort(expanded, opts.profile.boot.url, basePort);
+    const offset = basePort - portOf(opts.profile.boot.url);
+    const shimApplies = await isNodeProject(opts.projectRoot);
 
-    if (baseCmd !== original) {
-      log(
-        `base command retargeted to port ${basePort}` +
-          (resolved ? ` (resolved "${original}" from package.json)` : ""),
-      );
-    }
-    if (baseCmd === expanded && /\b\d{2,5}\b/.test(expanded)) {
-      // Nothing was rewritten but the command mentions a number: say so, rather
-      // than letting the base fail to bind and reporting it as unstartable.
-      log(`warning: could not find port ${new URL(opts.profile.boot.url).port} in the boot command`);
+    let baseCmd = original;
+    if (shimApplies) {
+      log(`ports moved in-process by ${offset}; the boot command is left as written`);
+    } else {
+      // Not a Node process, so the shim cannot help. Fall back to rewriting the
+      // port where it is written - resolving a script first, since the port is
+      // usually inside it rather than in the command a profile records.
+      const { command: expanded, resolved } = await resolveScriptCommand(original, opts.projectRoot);
+      baseCmd = retargetPort(expanded, opts.profile.boot.url, basePort) ?? original;
+
+      if (baseCmd !== original) {
+        log(
+          `base command retargeted to port ${basePort}` +
+            (resolved ? ` (resolved "${original}" from package.json)` : ""),
+        );
+      } else {
+        log(
+          `warning: this is not a Node project and port ${portOf(opts.profile.boot.url)} was not ` +
+            `found in the boot command, so the base may collide with the branch`,
+        );
+      }
     }
 
-    // A project often starts more than one server. Lumira runs Next on 3100 and
-    // a websocket on 3101, and retargeting only the port in the profile left the
-    // second one binding a port the branch already held - EADDRINUSE, and the
-    // base died before Next had finished starting.
+    // A project often starts more than one server - a dev server plus a
+    // websocket, a worker, a metrics endpoint. Retargeting only the port the
+    // profile names leaves the others binding ports the branch still holds, and
+    // the base dies on EADDRINUSE before the main server has finished starting.
     //
     // Every port the profile knows about is offset by the same amount, so the
     // whole application moves together rather than half of it.
-    const offset = basePort - portOf(opts.profile.boot.url);
     const sidecarEnv = sidecarPortEnv(opts.profile, offset);
     if (Object.keys(sidecarEnv).length) {
       log(`sidecar ports offset by ${offset}: ${Object.keys(sidecarEnv).join(", ")}`);
     }
+
+    // The catch-all. Everything above moves ports that are written somewhere
+    // Clarvis can read; this moves the ones that are not.
+    // Only when it is the mechanism in use, or it would move an already-moved port.
+    const shim = shimApplies ? shimEnv(offset, opts.profile.boot.env) : {};
 
     // The base runs from the worktree, on its own port, so both versions can be
     // up at once and neither can be mistaken for the other.
@@ -351,6 +440,7 @@ export async function runDifferential(opts: DifferentialOptions): Promise<Differ
           // of them. This is exactly what npm itself does before running a
           // script.
           ...sidecarEnv,
+          ...shim,
           PATH: [
             path.join(worktree.dir, "node_modules", ".bin"),
             path.join(opts.projectRoot, "node_modules", ".bin"),
@@ -469,11 +559,10 @@ export function retargetPort(cmd: string | undefined, url: string, port: number)
 /**
  * What `npm run <script>` actually executes.
  *
- * A profile records the command a human would type - `npm run dev:local` - and
- * the port lives inside package.json, where nothing can rewrite it. Lumira's
- * script is `next dev --turbopack -p 3100`, so the base bound the port the
- * branch already held and exited, and no amount of rewriting the outer command
- * could have helped.
+ * A profile records the command a human would type - `npm run dev` - while the
+ * port usually lives inside package.json, where nothing can rewrite it. The
+ * base then binds the port the branch already holds and exits, and rewriting
+ * the outer command cannot help because the outer command contains no port.
  *
  * Resolving one level is enough in practice and is where it stops: a script
  * that calls another script is a chain this has no business unwinding, and
@@ -496,6 +585,55 @@ export async function resolveScriptCommand(
   } catch {
     return { command: cmd, resolved: false };
   }
+}
+
+/**
+ * The preload that moves every port the base binds.
+ *
+ * Rewriting a boot command moves the port named there; environment variables
+ * move the ones a project exposes. Neither reaches a number hardcoded in a
+ * source file, and a real project usually has one - a websocket, a worker or a
+ * metrics endpoint written directly into the source.
+ *
+ * Injected through NODE_OPTIONS, so it applies to the process and every child
+ * it spawns. The project is not modified, not copied, and behaves identically
+ * without it.
+ */
+export function portShimPath(): string {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "portShim.cjs");
+}
+
+/**
+ * NODE_OPTIONS for the base instance, preserving whatever was already there.
+ *
+ * Appended rather than replacing: a project may legitimately need its own
+ * options, and dropping them would change how the base runs and make the
+ * comparison unfair.
+ */
+export function shimEnv(offset: number, existing?: Record<string, string>): Record<string, string> {
+  if (!offset) return {};
+
+  const preload = `--require ${JSON.stringify(portShimPath())}`;
+  const inherited = existing?.NODE_OPTIONS ?? process.env.NODE_OPTIONS ?? "";
+
+  return {
+    CLARVIS_PORT_OFFSET: String(offset),
+    NODE_OPTIONS: inherited ? `${inherited} ${preload}` : preload,
+  };
+}
+
+/**
+ * Whether the preload shim can reach this project's processes.
+ *
+ * It works by being required into a Node process, so it applies to anything
+ * Node starts and nothing else. A Python or Go server has to have its port
+ * moved the other way, by rewriting the command.
+ */
+export async function isNodeProject(projectRoot: string): Promise<boolean> {
+  const { stat } = await import("node:fs/promises");
+  return stat(path.join(projectRoot, "package.json"))
+    .then((s) => s.isFile())
+    .catch(() => false);
 }
 
 /** The port a URL uses, defaulted by scheme. */

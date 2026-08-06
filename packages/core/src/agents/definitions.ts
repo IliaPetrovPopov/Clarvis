@@ -333,7 +333,7 @@ Group by cause, not by wording. Three fixes for "wrong client sees data",
     // composing a whole spec file, is the largest single task any agent here
     // does. Running out returns NOTHING - so a ceiling that is too low costs the
     // entire attempt, and three attempts in a row hit the same wall. Measured on
-    // a production Next.js app: 30 was not enough.
+    // a production application: 30 was not enough.
     maxTurns: 60,
     maxUsd: 1.2,
     systemPrompt: `

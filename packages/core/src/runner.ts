@@ -104,10 +104,10 @@ export function renderPlaywrightConfig(opts: {
    * How long a single assertion may wait.
    *
    * Playwright's default is 5s, and that is not enough for a client-rendered
-   * application. Measured on a real Next.js app: `goto()` returned in 273ms and
-   * the first button became visible at 5,598ms - a 5.3 second gap in which the
-   * DOM is an empty shell. Every assertion timed out roughly 300ms short, and
-   * the run reported the resulting failures as findings about the application.
+   * application. Measured on a real one: `goto()` returned in 273ms and the
+   * first control became visible at 5,598ms - a 5.3 second gap in which the DOM
+   * is an empty shell. Every assertion timed out roughly 300ms short, and the
+   * run reported the resulting failures as findings about the application.
    *
    * This is hydration, not compilation, so it happens on every visit and no
    * amount of warming the server removes it. The fix is to let an assertion

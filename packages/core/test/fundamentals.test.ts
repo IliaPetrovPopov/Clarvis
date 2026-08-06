@@ -670,3 +670,39 @@ test("every known port moves together, so an application does not half-relocate"
   assert.equal(env.API_PORT, "9001", "a declared service moves too");
   assert.equal(env.NODE_ENV, undefined, "a non-port value is never touched");
 });
+
+test("only one mechanism ever moves a port", async () => {
+  // There are two, and both applying is a real failure: the boot command said
+  // 4100, the in-process shim added another 1000, and the application came up
+  // on 5100 while the comparison waited on 4100 and timed out. It had started
+  // perfectly.
+  const { isNodeProject, shimEnv } = await import("../src/eval/differential.ts");
+
+  const nodeProject = await mkdtemp(path.join(tmpdir(), "clarvis-node-"));
+  await writeFile(path.join(nodeProject, "package.json"), "{}", "utf8");
+  assert.equal(await isNodeProject(nodeProject), true, "the shim can reach a Node project");
+
+  const other = await mkdtemp(path.join(tmpdir(), "clarvis-other-"));
+  assert.equal(await isNodeProject(other), false, "and cannot reach anything else");
+
+  // The shim carries the offset; nothing else needs to.
+  const env = shimEnv(1000);
+  assert.equal(env.CLARVIS_PORT_OFFSET, "1000");
+  assert.match(env.NODE_OPTIONS, /--require .*portShim\.cjs/);
+
+  // No offset means no shim at all, rather than a no-op preload.
+  assert.deepEqual(shimEnv(0), {});
+});
+
+test("the port shim exists where the runtime expects it", async () => {
+  // It is loaded by path at boot time, so a rename that typechecks would still
+  // break every differential run.
+  const { portShimPath } = await import("../src/eval/differential.ts");
+  const { readFile: read } = await import("node:fs/promises");
+
+  const source = await read(portShimPath(), "utf8");
+  assert.match(source, /net\.Server\.prototype\.listen/, "it must patch the one place all servers pass through");
+  assert.match(source, /CLARVIS_PORT_OFFSET/);
+  // Outbound connections must never move, or the base talks to the wrong service.
+  assert.equal(/prototype\.connect/.test(source), false, "connect must be untouched");
+});

@@ -124,10 +124,10 @@ export interface Profile {
      * How the page arrives.
      *
      * Measured, not guessed: `client-rendered` means the server returns a shell
-     * and the content appears only after hydration. On a real Next.js app that
-     * gap was 5.3 seconds, and specs written as though the HTML were complete
-     * failed on every assertion - producing findings about the harness rather
-     * than the application.
+     * and the content appears only after hydration. Measured at 5.3 seconds on
+     * a real application, during which specs written as though the HTML were
+     * complete failed on every assertion - producing findings about the harness
+     * rather than about the software under test.
      */
     rendering?: "server-rendered" | "client-rendered" | "unknown";
     /** Milliseconds from navigation to content, when it was measured. */

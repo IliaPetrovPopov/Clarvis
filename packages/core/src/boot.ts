@@ -14,10 +14,10 @@ export interface BootResult {
  * Does this response look like an application, or like a shell waiting for JS?
  *
  * A development server answers 200 the moment it is listening and then compiles
- * the route on first request. Next.js served a "Loading" shell for five seconds
- * while doing so - which is a perfectly good 200, and completely useless to a
- * test. Every spec in the first real run asserted against that shell and timed
- * out, producing nine findings that were all false.
+ * the route on first request, answering 200 with a placeholder shell while it
+ * does. That is a perfectly good response and completely useless to a test.
+ * Measured on a real application: every spec in the run asserted against the
+ * shell and timed out, producing nine findings that were all false.
  *
  * So readiness is two questions, not one: is something listening, and has it
  * actually rendered anything.
@@ -124,10 +124,10 @@ export async function bootAndVerify(
   /**
    * A readyCheck on a different origin from boot.url is always a mistake.
    *
-   * It happened here: an earlier recon left `readyCheck` pointing at port 3000
-   * while `boot.url` was corrected to 3100. Boot verified one server and every
-   * spec drove another - both were running, so nothing failed loudly, and the
-   * run tested a different application than the one it claimed to.
+   * It happened in practice: an earlier recon left `readyCheck` on one port
+   * while `boot.url` was corrected to another. Both servers were running, so
+   * nothing failed loudly - boot verified one application while every spec
+   * drove a different one.
    *
    * The check is meant to be a cheaper endpoint on the SAME app, so a different
    * host or port means the profile is inconsistent and the url wins.
@@ -301,8 +301,9 @@ export async function warmRoutes(
  * long an assertion must be willing to wait, and getting it wrong is what
  * turned a working login page into thirteen false findings.
  *
- * Deliberately measured rather than inferred from a framework name: a Next.js
- * app may be either, and often is both on different routes.
+ * Deliberately measured rather than inferred from a framework name. The same
+ * framework serves both ways depending on how a route is written, and often
+ * does both within one application.
  */
 export async function measureRendering(url: string): Promise<{
   rendering: "server-rendered" | "client-rendered" | "unknown";
