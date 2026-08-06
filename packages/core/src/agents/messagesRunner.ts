@@ -262,6 +262,11 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
         },
       },
       notes: { type: "string" },
+      protectedRoutes: {
+        type: "array",
+        items: { type: "string" },
+        description: "Routes that redirect or refuse an anonymous visitor.",
+      },
     },
   },
 

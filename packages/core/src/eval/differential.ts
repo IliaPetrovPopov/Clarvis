@@ -76,7 +76,64 @@ async function git(args: string[], cwd: string): Promise<{ ok: boolean; stdout: 
 export interface Worktree {
   dir: string;
   ref: string;
+  /** Runtime files linked in from the project, since git does not carry them. */
+  linked: string[];
   remove: () => Promise<void>;
+}
+
+/**
+ * Files a checkout needs to run but git does not carry.
+ *
+ * A worktree contains exactly what is committed, which for any real project is
+ * not enough to start it: `.env.local` is gitignored by design and
+ * `node_modules` is never committed. Without them the base fails to boot, every
+ * failure is unclassifiable, and differential testing does not work on a single
+ * real repository.
+ *
+ * These are LINKED, not copied. A symlink means the base uses the same
+ * dependencies and the same configuration as the branch - which is what makes
+ * the comparison fair - and it means nothing is duplicated onto disk or left
+ * behind when the worktree is removed.
+ */
+const RUNTIME_DEPENDENCIES = [
+  "node_modules",
+  ".env",
+  ".env.local",
+  ".env.development",
+  ".env.development.local",
+  ".env.test",
+  ".env.test.local",
+];
+
+async function linkRuntimeDependencies(
+  projectRoot: string,
+  worktreeDir: string,
+): Promise<{ linked: string[]; missing: string[] }> {
+  const { symlink, stat: statFile } = await import("node:fs/promises");
+  const linked: string[] = [];
+  const missing: string[] = [];
+
+  for (const name of RUNTIME_DEPENDENCIES) {
+    const source = path.join(projectRoot, name);
+
+    // Only link what exists, and never overwrite something the checkout already
+    // has - a committed .env.example must win over a link.
+    const exists = await statFile(source).then(() => true).catch(() => false);
+    if (!exists) continue;
+
+    const target = path.join(worktreeDir, name);
+    const occupied = await statFile(target).then(() => true).catch(() => false);
+    if (occupied) continue;
+
+    try {
+      await symlink(source, target);
+      linked.push(name);
+    } catch {
+      missing.push(name);
+    }
+  }
+
+  return { linked, missing };
 }
 
 /**
@@ -102,9 +159,14 @@ export async function createWorktree(projectRoot: string, ref: string): Promise<
     throw new Error(`Could not create a worktree for "${ref}": ${added.stderr.trim().slice(0, 240)}`);
   }
 
+  // Without these the base cannot start, and a base that will not start makes
+  // every failure on the branch unclassifiable.
+  const deps = await linkRuntimeDependencies(projectRoot, dir);
+
   return {
     dir,
     ref: resolved.stdout.trim(),
+    linked: deps.linked,
     remove: async () => {
       // Prune through git as well as deleting: a stale worktree registration
       // makes every later attempt on the same ref fail.
@@ -226,6 +288,9 @@ export async function runDifferential(opts: DifferentialOptions): Promise<Differ
   try {
     worktree = await createWorktree(opts.projectRoot, opts.baseRef);
     log(`base ${opts.baseRef} checked out at ${worktree.dir}`);
+    if (worktree.linked.length) {
+      log(`linked from the project: ${worktree.linked.join(", ")}`);
+    }
 
     const basePort = opts.basePort ?? pickBasePort(opts.profile.boot.url);
     const baseUrl = withPort(opts.profile.boot.url, basePort);

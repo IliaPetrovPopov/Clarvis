@@ -218,3 +218,71 @@ test("running out of turns changes the instruction, not just the attempt", async
   assert.match(prompts[1], /Stop exploring and write the spec now/);
   assert.match(prompts[1], /shorter spec that runs beats a thorough one that never arrives/);
 });
+
+test("the author is told which routes exist and which need a session", async () => {
+  // A spec navigated anonymously to /explore, a protected route, saw the login
+  // page, and reported the real page as broken. The brief had never listed any
+  // routes at all.
+  const dir = await scratch();
+  const prompts: string[] = [];
+
+  const runner: AgentRunner = {
+    async invoke({ definition, prompt }) {
+      prompts.push(prompt);
+      return {
+        text: JSON.stringify({ source: GOOD, covers: [], untested: [] }),
+        model: definition.model,
+        usage: { inputTokens: 10, outputTokens: 10 },
+        usdReported: 0.01,
+      };
+    },
+  };
+
+  await authorSpecs({
+    axes: ["rbac-scope"],
+    profile: {
+      ...PROFILE,
+      surface: {
+        routes: [
+          { path: "/login" },
+          { path: "/explore", requiresAuth: true },
+        ],
+      },
+    },
+    runner,
+    budget: new Budget({ maxUsd: 5 }),
+    scratchDir: dir,
+  });
+
+  assert.match(prompts[0], /KNOWN ROUTES/);
+  assert.match(prompts[0], /\/explore\s+REQUIRES A SESSION/);
+  assert.match(prompts[0], /Do not navigate anywhere that is not on this list/);
+});
+
+test("with no mapped routes the author is told to check auth itself", async () => {
+  const dir = await scratch();
+  const prompts: string[] = [];
+
+  const runner: AgentRunner = {
+    async invoke({ definition, prompt }) {
+      prompts.push(prompt);
+      return {
+        text: JSON.stringify({ source: GOOD, covers: [], untested: [] }),
+        model: definition.model,
+        usage: { inputTokens: 10, outputTokens: 10 },
+        usdReported: 0.01,
+      };
+    },
+  };
+
+  await authorSpecs({
+    axes: ["rbac-scope"],
+    profile: PROFILE,
+    runner,
+    budget: new Budget({ maxUsd: 5 }),
+    scratchDir: dir,
+  });
+
+  assert.match(prompts[0], /none were mapped/);
+  assert.match(prompts[0], /check whether each one is behind auth/);
+});

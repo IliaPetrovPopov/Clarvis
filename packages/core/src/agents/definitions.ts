@@ -205,6 +205,12 @@ For every role, give:
   role-scoped tests assert against, so an empty list means that role is only
   checked for what it can do, never for what it must not.
 
+Also report "protectedRoutes": every route that redirects or refuses an
+anonymous visitor. Middleware, route guards and layout-level auth checks are
+where these live. A spec that navigates anonymously to a protected route sees a
+login page and reports the real page as broken - which has happened, and cost a
+full run to work out.
+
 A role with no credential is not useful: it cannot be logged in as, so the
 role-scoped tests will not run. If you genuinely cannot find one, say so in
 "notes" rather than returning a role with the fields left empty.

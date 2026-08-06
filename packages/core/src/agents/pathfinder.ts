@@ -69,6 +69,8 @@ interface AuthProposal {
     expectedDenied?: string[];
   }>;
   notes?: string;
+  /** Routes that refuse an anonymous visitor. */
+  protectedRoutes?: string[];
 }
 
 interface SafetyProposal {
@@ -540,7 +542,25 @@ export async function runRecon(opts: ReconOptions): Promise<{ profile: Profile; 
       rendering: opts.rendering?.rendering ?? existing?.stack?.rendering,
       hydrationMs: opts.rendering?.hydrationMs ?? existing?.stack?.hydrationMs,
     },
-    surface: existing?.surface,
+    // Which routes need a session is a fact every spec author needs: navigating
+    // anonymously to a protected route lands on a login page, and the spec then
+    // reports the real page as broken.
+    surface: (() => {
+      const protectedRoutes = (auth.protectedRoutes ?? [])
+        .map((r) => s(r))
+        .filter((r): r is string => Boolean(r?.startsWith("/")));
+
+      if (!protectedRoutes.length) return existing?.surface;
+
+      const known = new Map(
+        (existing?.surface?.routes ?? []).map((r) => [r.path, r]),
+      );
+      for (const path of protectedRoutes) {
+        known.set(path, { ...known.get(path), path, requiresAuth: true });
+      }
+
+      return { ...existing?.surface, routes: [...known.values()] };
+    })(),
     risk: hotspots?.length ? { ...existing?.risk, hotspots } : existing?.risk,
     viewports: existing?.viewports,
   };

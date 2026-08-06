@@ -448,3 +448,64 @@ test("a forbidden service aborts the whole run, not just its own axis", () => {
   assert.equal(decision.mode, "aborted");
   assert.match(decision.reason, /Service "db"/);
 });
+
+test("a base worktree gets the runtime files git does not carry", async () => {
+  // A worktree holds exactly what is committed, which for any real project is
+  // not enough to start it: .env.local is gitignored by design and node_modules
+  // is never committed. Without them the base never boots and every failure on
+  // the branch is unclassifiable.
+  const { createWorktree } = await import("../src/eval/differential.ts");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-wt-"));
+  await writeFile(path.join(root, "app.js"), "console.log(1);\n", "utf8");
+  await writeFile(path.join(root, ".gitignore"), "node_modules\n.env.local\n", "utf8");
+  await mkdir(path.join(root, "node_modules"), { recursive: true });
+  await writeFile(path.join(root, "node_modules", "marker"), "dep", "utf8");
+  await writeFile(path.join(root, ".env.local"), "SECRET=x\n", "utf8");
+
+  await run("git", ["init", "-q"], { cwd: root });
+  await run("git", ["add", "-A"], { cwd: root });
+  await run("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"], { cwd: root });
+
+  const worktree = await createWorktree(root, "HEAD");
+  try {
+    assert.ok(worktree.linked.includes("node_modules"), "dependencies must be available to the base");
+    assert.ok(worktree.linked.includes(".env.local"), "gitignored config must be available to the base");
+
+    // Linked, not copied: the base must use the same dependencies as the branch,
+    // which is what makes the comparison fair.
+    assert.equal(await readFile(path.join(worktree.dir, "node_modules", "marker"), "utf8"), "dep");
+    assert.equal(await readFile(path.join(worktree.dir, ".env.local"), "utf8"), "SECRET=x\n");
+  } finally {
+    await worktree.remove();
+  }
+
+  // Nothing left behind in the project.
+  assert.equal(await readFile(path.join(root, ".env.local"), "utf8"), "SECRET=x\n");
+});
+
+test("a committed file is never replaced by a link", async () => {
+  // A checkout that already has the file wins: overwriting it would test
+  // something other than what the base ref says.
+  const { createWorktree } = await import("../src/eval/differential.ts");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-wt-"));
+  await writeFile(path.join(root, ".env"), "COMMITTED=yes\n", "utf8");
+  await run("git", ["init", "-q"], { cwd: root });
+  await run("git", ["add", "-A"], { cwd: root });
+  await run("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"], { cwd: root });
+
+  const worktree = await createWorktree(root, "HEAD");
+  try {
+    assert.equal(worktree.linked.includes(".env"), false, "the committed file must win");
+    assert.equal(await readFile(path.join(worktree.dir, ".env"), "utf8"), "COMMITTED=yes\n");
+  } finally {
+    await worktree.remove();
+  }
+});

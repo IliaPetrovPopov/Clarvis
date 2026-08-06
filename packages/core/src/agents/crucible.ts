@@ -163,6 +163,18 @@ function renderPlan(plan: AxisPlan, profile: Profile): string {
           `response body is valid.`
         : "",
     profile.auth.loginUrl ? `LOGIN: ${profile.auth.loginUrl} (${profile.auth.mode})` : "",
+    // The brief never listed routes at all, which is why a spec invented one
+    // and navigated anonymously to a protected page - it saw a login screen and
+    // reported the real page as broken.
+    (profile.surface?.routes ?? []).length
+      ? `KNOWN ROUTES. Do not navigate anywhere that is not on this list:\n${(profile.surface?.routes ?? [])
+          .map(
+            (r) =>
+              `  ${r.path}${r.requiresAuth ? "   REQUIRES A SESSION - log in first, or do not visit it" : ""}`,
+          )
+          .join("\n")}`
+      : "KNOWN ROUTES: none were mapped. Use only routes you have read in the source, and " +
+        "check whether each one is behind auth before visiting it anonymously.",
     roles.length
       ? `ROLES:\n${roles
           .map(
