@@ -186,6 +186,23 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/**
+ * The first value of a repeatable flag.
+ *
+ * `--axis` is declared `multiple: true`, so parseArgs always yields an array -
+ * and `str()` returns undefined for an array. Two commands read it with `str()`
+ * and silently fell back to happy-path whatever was passed, which meant `diff
+ * --axis responsive-a11y` compared an axis that had no specs and reported
+ * "nothing can be compared".
+ *
+ * A flag that is ignored without complaint is worse than one that errors.
+ */
+export function firstOf(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (!Array.isArray(value)) return undefined;
+  return value.find((v): v is string => typeof v === "string" && Boolean(v.trim()));
+}
+
 function strList(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.filter((v): v is string => typeof v === "string");
@@ -719,7 +736,7 @@ export async function main(argv: string[]): Promise<void> {
         );
       }
 
-      const axis = str(values.axis) ?? "happy-path";
+      const axis = firstOf(values.axis) ?? "happy-path";
       const dir = await runDir(projectRoot, newRunId());
 
       console.log("");
@@ -900,13 +917,33 @@ export async function main(argv: string[]): Promise<void> {
         throw new Error("No base ref. Pass --base <ref> - there is nothing to compare against without one.");
       }
 
-      const axis = (str(values.axis) ?? "happy-path") as Axis;
+      const axis = (firstOf(values.axis) ?? "happy-path") as Axis;
       const runId = newRunId();
       const dir = await runDir(projectRoot, runId);
 
+      // Without specs there is nothing to compare, and the failure otherwise
+      // surfaces as "no tests ran" three minutes later, after a worktree has
+      // been created and the base has been booted for nothing.
+      const specs = await readdir(paths.scratch)
+        .then((f) => f.filter((n) => n.startsWith(`${axis}-`) && n.endsWith(".spec.ts")))
+        .catch(() => [] as string[]);
+
+      if (!specs.length) {
+        const available = await readdir(paths.scratch)
+          .then((f) => [...new Set(f.filter((n) => n.endsWith(".spec.ts")).map((n) => n.replace(/-\d+\.spec\.ts$/, "")))])
+          .catch(() => [] as string[]);
+
+        throw new Error(
+          `No specs for the "${axis}" axis in ${paths.scratch}.\n` +
+            (available.length
+              ? `  Available: ${available.join(", ")}. Pass --axis <one of those>, or run \`clarvis run\` to author more.`
+              : `  Run \`clarvis run\` first: differential testing compares existing specs, it does not write them.`),
+        );
+      }
+
       console.log("");
       console.log(`  comparing  this branch against ${base}`);
-      console.log(`  axis       ${axis}`);
+      console.log(`  axis       ${axis} (${specs.length} spec file(s))`);
 
       const report = await runDifferential({
         projectRoot,

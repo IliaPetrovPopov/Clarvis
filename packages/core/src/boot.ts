@@ -226,7 +226,9 @@ export async function bootAndVerify(
     // rather than burning the full timeout.
     if (exited !== null && exited !== 0) {
       blockers.push(`boot.cmd exited with code ${exited} before ${readyUrl} answered.`);
-      if (tail.length) blockers.push(`Last output: ${tail.slice(-5).join(" / ")}`);
+      // Fifteen lines rather than five: a stack trace pushes the actual error
+      // off the end, and the error is the only part worth having.
+      if (tail.length) blockers.push(...tail.slice(-15).map((l) => l.trim()).filter(Boolean));
       break;
     }
     await new Promise((r) => setTimeout(r, 1500));
@@ -236,7 +238,7 @@ export async function bootAndVerify(
     blockers.push(
       `${readyUrl} did not answer within ${Math.round(timeoutMs / 1000)}s of running boot.cmd.`,
     );
-    if (tail.length) blockers.push(`Last output: ${tail.slice(-5).join(" / ")}`);
+    if (tail.length) blockers.push(...tail.slice(-15).map((l) => l.trim()).filter(Boolean));
   }
 
   await stop();

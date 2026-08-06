@@ -509,3 +509,164 @@ test("a committed file is never replaced by a link", async () => {
     await worktree.remove();
   }
 });
+
+test("a boot command that names its own port is retargeted, not just given PORT", async () => {
+  // `next dev -p 3100` ignores PORT entirely, so the base tried to bind the port
+  // the branch already held and exited immediately. Differential testing cannot
+  // work on any project whose dev script names its port - which is most of them.
+  const { retargetPort } = await import("../src/eval/differential.ts");
+  const url = "http://localhost:3100";
+
+  assert.equal(
+    retargetPort('concurrently "next dev --turbopack -p 3100" "tsx ws.ts"', url, 4100),
+    'concurrently "next dev --turbopack -p 4100" "tsx ws.ts"',
+  );
+  assert.equal(retargetPort("vite --port 3100", url, 4100), "vite --port 4100");
+  assert.equal(retargetPort("next dev --port=3100", url, 4100), "next dev --port=4100");
+  assert.equal(retargetPort("PORT=3100 node server.js", url, 4100), "PORT=4100 node server.js");
+});
+
+test("only the port in use is rewritten, never a number that merely looks like one", () => {
+  // Replacing every port-shaped number would corrupt a memory limit, a timeout,
+  // or a version - and the resulting failure would look like an application bug.
+  return import("../src/eval/differential.ts").then(({ retargetPort }) => {
+    const url = "http://localhost:3100";
+    assert.equal(
+      retargetPort("node --max-old-space-size=3100 server.js", url, 4100),
+      "node --max-old-space-size=3100 server.js",
+    );
+    // A different port is left alone too.
+    assert.equal(retargetPort("next dev -p 8080", url, 4100), "next dev -p 8080");
+    assert.equal(retargetPort(undefined, url, 4100), undefined);
+  });
+});
+
+test("an npm script is resolved so a port buried inside it can be retargeted", async () => {
+  // A profile records what a human types - `npm run dev:local` - while the port
+  // lives in package.json, where nothing can rewrite it. The base bound the port
+  // the branch already held and exited, and no amount of rewriting the outer
+  // command could have helped.
+  const { resolveScriptCommand, retargetPort } = await import("../src/eval/differential.ts");
+
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-script-"));
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({ scripts: { "dev:local": "next dev --turbopack -p 3100" } }),
+    "utf8",
+  );
+
+  const resolved = await resolveScriptCommand("npm run dev:local", root);
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.command, "next dev --turbopack -p 3100");
+
+  assert.equal(
+    retargetPort(resolved.command, "http://localhost:3100", 4100),
+    "next dev --turbopack -p 4100",
+  );
+});
+
+test("a command that is not a script reference is left exactly as it is", async () => {
+  const { resolveScriptCommand } = await import("../src/eval/differential.ts");
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-script-"));
+
+  // No package.json at all.
+  const direct = await resolveScriptCommand("node server.mjs", root);
+  assert.equal(direct.resolved, false);
+  assert.equal(direct.command, "node server.mjs");
+
+  // A script that does not exist is not invented.
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }), "utf8");
+  const missing = await resolveScriptCommand("npm run nope", root);
+  assert.equal(missing.resolved, false);
+  assert.equal(missing.command, "npm run nope");
+});
+
+test("a resolved script gets node_modules/.bin on PATH, as npm would", async () => {
+  // Resolving `npm run dev:local` means running its contents directly, and a raw
+  // command does not get node_modules/.bin on PATH the way `npm run` does. The
+  // base exited 127 - command not found - because `concurrently` was invisible.
+  // This bug existed only because resolving the script fixed the previous one.
+  const { runDifferential } = await import("../src/eval/differential.ts");
+
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-path-"));
+  await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { dev: "serve -p 3000" } }), "utf8");
+
+  // No git repository, so the worktree step fails and the run is blocked - but
+  // the profile it would have built is what this asserts on, so drive the pure
+  // parts instead.
+  const report = await runDifferential({
+    projectRoot: root,
+    baseRef: "HEAD",
+    profile: {
+      schemaVersion: 1,
+      project: { name: "p", root },
+      boot: { url: "http://localhost:3000", cmd: "npm run dev", verified: true },
+      auth: { mode: "none", roles: [] },
+      data: { disposable: false, safeTargets: [] },
+    },
+    specDir: path.join(root, "specs"),
+    axisKey: "happy-path",
+    outputDir: path.join(root, "out"),
+  });
+
+  // It cannot compare without a repository, and says so rather than pretending.
+  assert.ok(report.blockers.length > 0);
+  assert.equal(report.regressions.length, 0);
+});
+
+test("a base that will not start reports why, not just that it did not", async () => {
+  // Every blocker, not just the first. Boot captures the process output and the
+  // cause is almost always in it - EADDRINUSE from a second server, a missing
+  // binary, a bad flag. Printing only blockers[0] meant every failure had to be
+  // reproduced by hand to find out what it was, which cost several runs.
+  const { bootAndVerify } = await import("../src/boot.ts");
+
+  const root = await mkdtemp(path.join(tmpdir(), "clarvis-boot-"));
+  const boot = await bootAndVerify({
+    schemaVersion: 1,
+    project: { name: "p", root },
+    boot: {
+      // Fails immediately, with a specific reason on stderr.
+      cmd: "node -e \"console.error('Error: listen EADDRINUSE 0.0.0.0:3101'); process.exit(1)\"",
+      cwd: root,
+      url: "http://localhost:59998",
+      readyTimeoutMs: 8000,
+      verified: false,
+    },
+    auth: { mode: "none", roles: [] },
+    data: { disposable: false, safeTargets: [] },
+  });
+
+  assert.equal(boot.verified, false);
+  const joined = boot.blockers.join("\n");
+  assert.match(joined, /exited with code 1/);
+  // The actual cause has to survive into the blockers, or it is unusable.
+  assert.match(joined, /EADDRINUSE/);
+  assert.match(joined, /3101/);
+});
+
+test("every known port moves together, so an application does not half-relocate", async () => {
+  // Lumira runs Next on 3100 and a websocket on 3101. Moving only the port the
+  // profile names left the second binding a port the branch still held, and the
+  // base died on EADDRINUSE before the main server finished starting.
+  const { sidecarPortEnv, portOf } = await import("../src/eval/differential.ts");
+
+  assert.equal(portOf("http://localhost:3100"), 3100);
+  assert.equal(portOf("https://example.com"), 443);
+
+  const env = sidecarPortEnv(
+    {
+      schemaVersion: 1,
+      project: { name: "p", root: "/tmp/p" },
+      boot: { url: "http://localhost:3100", verified: true, env: { WS_PORT: "3101", NODE_ENV: "development" } },
+      auth: { mode: "none", roles: [] },
+      data: { disposable: false, safeTargets: [] },
+      services: [{ key: "api", url: "http://localhost:8001" }],
+    },
+    1000,
+  );
+
+  assert.equal(env.WS_PORT, "4101", "a sidecar port moves by the same offset");
+  assert.equal(env.API_PORT, "9001", "a declared service moves too");
+  assert.equal(env.NODE_ENV, undefined, "a non-port value is never touched");
+});

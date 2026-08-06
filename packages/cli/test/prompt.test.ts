@@ -71,3 +71,22 @@ test("locked values are not returned twice", async () => {
 
   assert.equal(result.values.length, new Set(result.values).size);
 });
+
+test("a repeatable flag is read as one, not silently ignored", async () => {
+  // `--axis` is declared multiple:true so parseArgs always yields an array, and
+  // the string accessor returns undefined for arrays. Two commands read it that
+  // way and silently fell back to happy-path whatever was passed - so
+  // `diff --axis responsive-a11y` compared an axis with no specs and reported
+  // "nothing can be compared". A flag ignored without complaint is worse than
+  // one that errors.
+  const { firstOf } = await import("../src/main.ts");
+
+  assert.equal(firstOf(["responsive-a11y"]), "responsive-a11y");
+  assert.equal(firstOf(["visual", "i18n-rtl"]), "visual", "the first wins");
+  assert.equal(firstOf("happy-path"), "happy-path", "a plain string still works");
+
+  assert.equal(firstOf(undefined), undefined);
+  assert.equal(firstOf([]), undefined);
+  assert.equal(firstOf(["   "]), undefined, "whitespace is not a value");
+  assert.equal(firstOf([true]), undefined, "a valueless flag is not a value");
+});

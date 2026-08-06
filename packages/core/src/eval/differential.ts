@@ -295,6 +295,41 @@ export async function runDifferential(opts: DifferentialOptions): Promise<Differ
     const basePort = opts.basePort ?? pickBasePort(opts.profile.boot.url);
     const baseUrl = withPort(opts.profile.boot.url, basePort);
 
+    // A boot command may hardcode its port - `next dev -p 3100` is the common
+    // shape - in which case PORT in the environment does nothing and the base
+    // tries to bind the port the branch is already using, then exits.
+    // Rewriting the flag is the only thing that actually moves it.
+    // The port usually lives inside the npm script rather than in the command a
+    // profile records, so the script is resolved before rewriting it.
+    const original = opts.profile.boot.cmd ?? "";
+    const { command: expanded, resolved } = await resolveScriptCommand(original, opts.projectRoot);
+    const baseCmd = retargetPort(expanded, opts.profile.boot.url, basePort);
+
+    if (baseCmd !== original) {
+      log(
+        `base command retargeted to port ${basePort}` +
+          (resolved ? ` (resolved "${original}" from package.json)` : ""),
+      );
+    }
+    if (baseCmd === expanded && /\b\d{2,5}\b/.test(expanded)) {
+      // Nothing was rewritten but the command mentions a number: say so, rather
+      // than letting the base fail to bind and reporting it as unstartable.
+      log(`warning: could not find port ${new URL(opts.profile.boot.url).port} in the boot command`);
+    }
+
+    // A project often starts more than one server. Lumira runs Next on 3100 and
+    // a websocket on 3101, and retargeting only the port in the profile left the
+    // second one binding a port the branch already held - EADDRINUSE, and the
+    // base died before Next had finished starting.
+    //
+    // Every port the profile knows about is offset by the same amount, so the
+    // whole application moves together rather than half of it.
+    const offset = basePort - portOf(opts.profile.boot.url);
+    const sidecarEnv = sidecarPortEnv(opts.profile, offset);
+    if (Object.keys(sidecarEnv).length) {
+      log(`sidecar ports offset by ${offset}: ${Object.keys(sidecarEnv).join(", ")}`);
+    }
+
     // The base runs from the worktree, on its own port, so both versions can be
     // up at once and neither can be mistaken for the other.
     const baseProfile: Profile = {
@@ -302,19 +337,42 @@ export async function runDifferential(opts: DifferentialOptions): Promise<Differ
       project: { ...opts.profile.project, root: worktree.dir },
       boot: {
         ...opts.profile.boot,
+        cmd: baseCmd,
         cwd: worktree.dir,
         url: baseUrl,
         readyCheck: undefined,
-        env: { ...opts.profile.boot.env, PORT: String(basePort) },
+        env: {
+          ...opts.profile.boot.env,
+          PORT: String(basePort),
+          // Resolving an npm script means running its contents directly, and a
+          // raw command does not get node_modules/.bin on PATH the way `npm
+          // run` does. Without this the base exits 127 - command not found -
+          // for every project whose script calls a local binary, which is all
+          // of them. This is exactly what npm itself does before running a
+          // script.
+          ...sidecarEnv,
+          PATH: [
+            path.join(worktree.dir, "node_modules", ".bin"),
+            path.join(opts.projectRoot, "node_modules", ".bin"),
+            process.env.PATH ?? "",
+          ]
+            .filter(Boolean)
+            .join(path.delimiter),
+        },
       },
     };
 
     const boot = await bootAndVerify(baseProfile, { log: (l) => log(`base: ${l}`) });
 
     if (!boot.verified) {
+      // Every blocker, not just the first. Boot already captures the process
+      // output and the reason is almost always in it - EADDRINUSE from a second
+      // server, a missing binary, a bad flag. Printing only blockers[0] meant
+      // each failure had to be reproduced by hand to find out what it was.
       blockers.push(
-        `The base version would not start: ${boot.blockers[0] ?? "no detail"}. ` +
-          `Without it there is nothing to compare against, so no failure can be called a regression.`,
+        `The base version would not start, so nothing can be compared and no failure can be ` +
+          `called a regression.`,
+        ...boot.blockers.map((b) => `  base: ${b}`),
       );
     } else {
       try {
@@ -373,6 +431,115 @@ export async function runDifferential(opts: DifferentialOptions): Promise<Differ
   }
 
   return { baseRef: opts.baseRef, results, regressions, preExisting, fixed, blockers, notes };
+}
+
+/**
+ * Point a boot command at a different port.
+ *
+ * Setting PORT in the environment is not enough when the command names the port
+ * itself, which most dev scripts do: `next dev -p 3100`, `vite --port 3100`,
+ * `PORT=3100 node server.js`. The base then tries to bind the port the branch
+ * already holds and exits immediately, and the comparison is impossible.
+ *
+ * Only the port the profile actually uses is rewritten. Replacing every number
+ * that looks like a port would corrupt unrelated arguments - a memory limit, a
+ * timeout, a version.
+ */
+export function retargetPort(cmd: string | undefined, url: string, port: number): string | undefined {
+  if (!cmd) return cmd;
+
+  let current: string;
+  try {
+    const parsed = new URL(url);
+    current = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  } catch {
+    return cmd;
+  }
+
+  const to = String(port);
+  return cmd
+    // -p 3100, --port 3100, --port=3100
+    .replace(new RegExp(`(--?p(?:ort)?[= ])${current}\\b`, "g"), `$1${to}`)
+    // PORT=3100
+    .replace(new RegExp(`\\bPORT=${current}\\b`, "g"), `PORT=${to}`)
+    // :3100 inside a URL the command passes on
+    .replace(new RegExp(`:${current}\\b`, "g"), `:${to}`);
+}
+
+/**
+ * What `npm run <script>` actually executes.
+ *
+ * A profile records the command a human would type - `npm run dev:local` - and
+ * the port lives inside package.json, where nothing can rewrite it. Lumira's
+ * script is `next dev --turbopack -p 3100`, so the base bound the port the
+ * branch already held and exited, and no amount of rewriting the outer command
+ * could have helped.
+ *
+ * Resolving one level is enough in practice and is where it stops: a script
+ * that calls another script is a chain this has no business unwinding, and
+ * guessing wrong would run something the user did not ask for.
+ */
+export async function resolveScriptCommand(
+  cmd: string,
+  projectRoot: string,
+): Promise<{ command: string; resolved: boolean }> {
+  const match = /^\s*(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([\w:.-]+)\s*$/.exec(cmd);
+  if (!match) return { command: cmd, resolved: false };
+
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const pkg = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    const script = pkg.scripts?.[match[1]];
+    return script ? { command: script, resolved: true } : { command: cmd, resolved: false };
+  } catch {
+    return { command: cmd, resolved: false };
+  }
+}
+
+/** The port a URL uses, defaulted by scheme. */
+export function portOf(url: string): number {
+  try {
+    const parsed = new URL(url);
+    return Number(parsed.port || (parsed.protocol === "https:" ? "443" : "80"));
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Environment for every OTHER server a project starts.
+ *
+ * One application is frequently several processes. Moving only the one the
+ * profile names leaves the rest binding ports the branch still holds, and the
+ * whole base dies on EADDRINUSE before the main server has finished starting.
+ *
+ * Everything is offset by the same amount so the application moves as a unit
+ * and any internal wiring between its parts still lines up.
+ */
+export function sidecarPortEnv(profile: Profile, offset: number): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (!offset) return env;
+
+  // Ports named in the profile's own environment, which is where a project
+  // records the ones it needs.
+  for (const [key, value] of Object.entries(profile.boot.env ?? {})) {
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1024 || port > 65_535) continue;
+    if (!/port/i.test(key)) continue;
+    env[key] = String(port + offset);
+  }
+
+  // Declared services move with it, so a spec driving one still reaches the
+  // base rather than the branch.
+  for (const service of profile.services ?? []) {
+    const port = portOf(service.url);
+    if (!port) continue;
+    env[`${service.key.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_PORT`] = String(port + offset);
+  }
+
+  return env;
 }
 
 /** A port that will not collide with the branch's instance. */
