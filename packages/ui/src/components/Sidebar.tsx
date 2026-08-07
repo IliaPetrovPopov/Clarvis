@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Run } from "@clarvis/core/types";
-import { relativeTime } from "@clarvis/core/briefing";
+import { buildBriefing, relativeTime } from "@clarvis/core/briefing";
 import type { Project } from "../data";
 import { Dot, Label } from "./primitives";
 
@@ -152,21 +152,29 @@ export function Sidebar({
   onSelectView: (v: View) => void;
   run?: Run;
 }) {
-  const confirmed = run?.findings?.filter((f) => f.tier === "CONFIRMED") ?? [];
-  const critical = confirmed.filter((f) => f.severity === "critical").length;
   const running = run?.status === "running";
 
-  const statusColor = !run
+  /*
+    The same verdict the briefing reaches, not a second one computed here.
+
+    These used to disagree: the rail counted confirmed findings and called an
+    empty list green, while the briefing also weighed coverage and called the
+    same run "attention" because nothing was known about what it reached. Two
+    parts of one page stating opposite things about one run is worse than
+    either being wrong, since a reader cannot tell which to believe.
+  */
+  const briefing = run ? buildBriefing({ latest: run, now: new Date(), address: "plain" }) : undefined;
+
+  const statusColor = !briefing
     ? "var(--color-dim)"
     : running
       ? "var(--color-signal)"
-      : run.status === "blocked"
-        ? "var(--color-sev-critical)"
-        : critical > 0
-          ? "var(--color-sev-critical)"
-          : confirmed.length > 0
-            ? "var(--color-attend)"
-            : "var(--color-good)";
+      : ({
+          "no-data": "var(--color-dim)",
+          clear: "var(--color-good)",
+          attention: "var(--color-attend)",
+          blocked: "var(--color-sev-critical)",
+        }[briefing.status] ?? "var(--color-muted)");
 
   return (
     <div className="flex h-full flex-col">
@@ -228,15 +236,7 @@ export function Sidebar({
             <div className="flex items-center gap-2">
               <Dot color={statusColor} live={running} />
               <span className="text-[12px]" style={{ color: statusColor, fontWeight: 500 }}>
-                {running
-                  ? (run.stage?.label ?? "running")
-                  : run.status === "blocked"
-                    ? "Blocked"
-                    : critical > 0
-                      ? `${critical} critical`
-                      : confirmed.length > 0
-                        ? `${confirmed.length} confirmed`
-                        : "Nothing confirmed"}
+                {running ? (run.stage?.label ?? "running") : (briefing?.headline ?? "No runs")}
               </span>
             </div>
             <p className="readout mt-1.5 text-[10.5px]" style={{ color: "var(--color-dim)" }}>

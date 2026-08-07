@@ -8,14 +8,25 @@ import {
   type BriefingSegment,
 } from "@clarvis/core/briefing";
 import { useVoice } from "../useVoice";
-import { Label, Panel, SeverityChip, settle } from "./primitives";
+import { Dot, Label, SeverityChip, settle } from "./primitives";
 
 /**
- * The morning view.
+ * The morning view. What state are we in, and does anything need me.
  *
- * The briefing itself is computed in core from run data - nothing here calls a
- * model, so it is instant, free, offline, and cannot invent a status. This
- * component only presents it and speaks it.
+ * The briefing is computed in core from run data - nothing here calls a model,
+ * so it is instant, free, offline, and cannot invent a status. This component
+ * presents it and speaks it.
+ *
+ * It previously did so twice. The spoken paragraph and the segment cards below
+ * it are the same sentences: the paragraph is the segments joined together, so
+ * a reader saw "the last run finished 9 hours ago" in a panel and then again
+ * in a card underneath. The segments are the better form - labelled, tonal,
+ * scannable - so the paragraph is now what gets spoken and what a screen reader
+ * announces, and the page shows the segments.
+ *
+ * The greeting was also set as the largest thing on the page, in caps, above a
+ * headline that repeated it. It is a greeting. It reads at body size next to
+ * the state, which is the part that matters.
  *
  * Every voice affordance has a button beside it. Recognition is unavailable in
  * some browsers, unreliable in a noisy room, and unusable for anyone who cannot
@@ -29,6 +40,13 @@ const TONE: Record<BriefingSegment["tone"], string> = {
   bad: "var(--color-sev-critical)",
 };
 
+const STATUS_TONE = {
+  "no-data": "var(--color-dim)",
+  clear: "var(--color-good)",
+  attention: "var(--color-attend)",
+  blocked: "var(--color-sev-critical)",
+} as const;
+
 const COMMANDS = [
   { intent: "briefing" as const, label: "How are we doing" },
   { intent: "criticals" as const, label: "What's critical" },
@@ -37,34 +55,38 @@ const COMMANDS = [
   { intent: "blocked" as const, label: "Anything blocked" },
 ];
 
-/** Concentric rings that react to speaking or listening. Purely decorative. */
-function Reactor({ active, listening }: { active: boolean; listening: boolean }) {
-  const color = listening ? "var(--color-attend)" : "var(--color-signal)";
+/** A quiet control. The page has one accent and this is not it. */
+function Chip({
+  children,
+  onClick,
+  active = false,
+  tone = "var(--color-muted)",
+  disabled = false,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  active?: boolean;
+  tone?: string;
+  disabled?: boolean;
+  title?: string;
+}) {
   return (
-    <div className="relative size-[112px] shrink-0" aria-hidden>
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="absolute inset-0 rotate-45 border"
-          style={{
-            borderColor: color,
-            opacity: active ? 0.55 - i * 0.15 : 0.16,
-            transform: `rotate(45deg) scale(${1 - i * 0.18})`,
-            transition: "opacity .35s ease",
-            animation: active ? `reactor-pulse ${1.6 + i * 0.35}s ease-in-out infinite` : undefined,
-            animationDelay: `${i * 0.18}s`,
-          }}
-        />
-      ))}
-      <span
-        className="absolute inset-[38%] rotate-45"
-        style={{
-          background: color,
-          boxShadow: `0 0 ${active ? 34 : 14}px ${color}`,
-          transition: "box-shadow .35s ease",
-        }}
-      />
-    </div>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-pressed={active}
+      className="focusable lbl px-2.5 py-1.5 transition-colors disabled:opacity-35"
+      style={{
+        color: active ? "var(--color-ink-000)" : tone,
+        background: active ? tone : "transparent",
+        border: `1px solid ${active ? tone : "var(--color-hair-lit)"}`,
+        borderRadius: "var(--radius-sm)",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -79,7 +101,6 @@ export function Briefing({
 }) {
   const [spokenText, setSpokenText] = useState<string>("");
   const [heard, setHeard] = useState<string>("");
-  const greeted = useRef(false);
 
   // Preferences persist locally; there is no account and nothing to sync.
   const [address, setAddress] = useState<Address>(
@@ -97,8 +118,7 @@ export function Briefing({
 
   const voice = useVoice((utterance) => {
     setHeard(utterance);
-    const intent = parseIntent(utterance);
-    const answer = answerIntent(intent, briefing);
+    const answer = answerIntent(parseIntent(utterance), briefing);
     setSpokenText(answer);
     voiceRef.current?.speak(answer);
   });
@@ -113,198 +133,134 @@ export function Briefing({
     voice.speak(text);
   };
 
-  // Show the full briefing as the default transcript without speaking it.
-  // Autoplaying audio is hostile, and most browsers block it before a gesture.
-  useEffect(() => {
-    if (greeted.current) return;
-    greeted.current = true;
-    setSpokenText(briefing.spoken);
-  }, [briefing.spoken]);
+  const statusTone = STATUS_TONE[briefing.status];
 
-  const statusColor = {
-    "no-data": "var(--color-dim)",
-    clear: "var(--color-good)",
-    attention: "var(--color-attend)",
-    blocked: "var(--color-sev-critical)",
-  }[briefing.status];
+  // An answer to a question is worth showing; the default briefing is not,
+  // because the segments below already say it. Autoplaying audio is hostile
+  // and most browsers block it before a gesture, so nothing is spoken on load.
+  const answer = spokenText && spokenText !== briefing.spoken ? spokenText : "";
 
   return (
-    <section className="px-8 pt-8 pb-10">
-      <div className="settle flex flex-wrap items-start gap-8" style={settle(0)}>
-        <Reactor active={voice.speaking || voice.listening} listening={voice.listening} />
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="text-[13px]" style={{ color: statusColor, letterSpacing: "0.3em" }}>
-              {briefing.status.toUpperCase().replace("-", " ")}
+    <section className="px-5 pt-6 pb-10 lg:px-8">
+      <div className="settle" style={settle(0)}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Dot color={statusTone} live={briefing.status === "blocked"} />
+          <Label tone={statusTone}>{briefing.status.replace("-", " ")}</Label>
+          {briefing.runId && (
+            <span className="readout text-[11px]" style={{ color: "var(--color-dim)" }}>
+              {briefing.runId}
             </span>
-            {/* The rule only earns its space when there is room for it. */}
-            <span className="hidden h-px flex-1 sm:block" style={{ background: "var(--color-hair)" }} />
-            {briefing.runId && (
-              <span className="lbl max-w-full truncate" title={briefing.runId}>
-                {briefing.runId}
-              </span>
-            )}
-          </div>
-
-          <h1
-            className="mt-3 text-[38px] leading-[1.05] uppercase"
-            style={{ color: "var(--color-bright)" }}
-          >
-            {briefing.greeting}
-          </h1>
-          <p className="mt-1 text-[19px] uppercase" style={{ color: statusColor }}>
-            {briefing.headline}
-          </p>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button
-              onClick={() => (voice.speaking ? voice.stopSpeaking() : say(briefing.spoken))}
-              disabled={!voice.canSpeak}
-              className="lbl px-4 py-2 transition-colors disabled:opacity-40"
-              style={{
-                color: voice.speaking ? "var(--color-ink-000)" : "var(--color-signal)",
-                background: voice.speaking ? "var(--color-signal)" : "transparent",
-                border: "1px solid var(--color-signal)",
-              }}
-            >
-              {voice.speaking ? "Stop" : "Brief me"}
-            </button>
-
-            <button
-              onClick={() => (voice.listening ? voice.stopListening() : voice.listen())}
-              disabled={!voice.canListen}
-              className="lbl flex items-center gap-2 px-4 py-2 transition-colors disabled:opacity-40"
-              style={{
-                color: voice.listening ? "var(--color-ink-000)" : "var(--color-attend)",
-                background: voice.listening ? "var(--color-attend)" : "transparent",
-                border: "1px solid var(--color-attend)",
-              }}
-              title={voice.canListen ? "Ask a question out loud" : "This browser cannot do speech recognition"}
-            >
-              <span
-                className={voice.listening ? "pulse" : ""}
-                style={{ display: "block", width: 6, height: 6, background: "currentColor" }}
-                aria-hidden
-              />
-              {voice.listening ? "Listening" : "Ask"}
-            </button>
-
-            <button onClick={onOpenRun} className="lbl px-4 py-2" style={{ border: "1px solid var(--color-hair-lit)" }}>
-              Full run
-            </button>
-          </div>
-
-          {/* Every spoken command is also a button. */}
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {COMMANDS.map((c) => (
-              <button
-                key={c.intent}
-                onClick={() => say(answerIntent(c.intent, briefing))}
-                className="lbl px-2.5 py-1 transition-colors hover:text-[var(--color-signal)]"
-                style={{ border: "1px solid var(--color-hair)", color: "var(--color-dim)", fontSize: "9.5px" }}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {/*
-              No voice picker. One voice is chosen automatically - British RP,
-              male, local - because the register is the thing that matters and a
-              dropdown of forty system voices is a settings screen, not a
-              briefing. The name is shown so it is never a mystery which one
-              spoke.
-            */}
-            {voice.activeVoice && (
-              <span className="label" style={{ fontSize: "9.5px", color: "var(--color-dim)" }}>
-                voice · {voice.activeVoice.name}
-              </span>
-            )}
-
-            <button
-              onClick={() => setAddress(address === "formal" ? "plain" : "formal")}
-              aria-pressed={address === "formal"}
-              className="lbl px-2.5 py-1 transition-colors"
-              style={{
-                border: `1px solid ${address === "formal" ? "var(--color-signal)" : "var(--color-hair)"}`,
-                color: address === "formal" ? "var(--color-signal)" : "var(--color-dim)",
-                fontSize: "9.5px",
-              }}
-            >
-              formal address
-            </button>
-          </div>
+          )}
         </div>
+
+        {/* The state, large. The greeting sits beside it at conversational
+            size, because it is a courtesy rather than the information. */}
+        <h1
+          className="mt-2.5 max-w-[46ch] text-[27px] leading-tight"
+          style={{ color: statusTone, fontWeight: 500, letterSpacing: "-0.015em" }}
+        >
+          {briefing.headline}
+        </h1>
+        <p className="prose mt-1 text-[13px]" style={{ color: "var(--color-dim)" }}>
+          {briefing.greeting}
+        </p>
+      </div>
+
+      <div className="settle mt-5 flex flex-wrap items-center gap-2" style={settle(1)}>
+        <Chip
+          onClick={() => (voice.speaking ? voice.stopSpeaking() : say(briefing.spoken))}
+          disabled={!voice.canSpeak}
+          active={voice.speaking}
+          tone="var(--color-signal)"
+        >
+          {voice.speaking ? "Stop" : "Brief me"}
+        </Chip>
+
+        <Chip
+          onClick={() => (voice.listening ? voice.stopListening() : voice.listen())}
+          disabled={!voice.canListen}
+          active={voice.listening}
+          tone="var(--color-attend)"
+          title={voice.canListen ? "Ask a question out loud" : "This browser cannot do speech recognition"}
+        >
+          {voice.listening ? "Listening" : "Ask"}
+        </Chip>
+
+        <Chip onClick={onOpenRun}>Full run</Chip>
+
+        <span className="mx-1 hidden h-4 w-px sm:block" style={{ background: "var(--color-hair-lit)" }} />
+
+        {/* Every spoken command is also a button. */}
+        {COMMANDS.map((c) => (
+          <Chip key={c.intent} onClick={() => say(answerIntent(c.intent, briefing))} tone="var(--color-dim)">
+            {c.label}
+          </Chip>
+        ))}
       </div>
 
       {/* What was heard and what was said, always visible as text. */}
-      {(heard || voice.transcript || voice.error) && (
-        <div className="settle mt-6" style={settle(1)}>
+      {(answer || heard || voice.transcript || voice.error) && (
+        <div className="settle surface mt-4 px-4 py-3" style={settle(2)}>
           {(voice.transcript || heard) && (
-            <p className="text-[12px]" style={{ color: "var(--color-attend)" }}>
-              <span className="label" style={{ display: "inline", marginRight: 8 }}>
-                heard
-              </span>
-              "{voice.transcript || heard}"
+            <p className="prose text-[12px]" style={{ color: "var(--color-attend)" }}>
+              <Label tone="var(--color-attend)">heard</Label>{" "}
+              &ldquo;{voice.transcript || heard}&rdquo;
+            </p>
+          )}
+          {answer && (
+            <p
+              className="prose mt-1.5 text-[13px]"
+              style={{ color: "var(--color-body)" }}
+              aria-live="polite"
+            >
+              {answer}
             </p>
           )}
           {voice.error && (
-            <p className="mt-1 text-[12px]" style={{ color: "var(--color-sev-critical)" }}>
+            <p className="prose mt-1 text-[12px]" style={{ color: "var(--color-sev-critical)" }}>
               {voice.error}
             </p>
           )}
         </div>
       )}
 
-      <Panel className="settle mt-6" style={settle(2)}>
-        <div className="px-5 py-4">
-          <Label>briefing</Label>
-          {/* aria-live so a screen reader announces answers as they change. */}
-          <p
-            className="mt-2 text-[13px] leading-relaxed"
-            style={{ color: "var(--color-body)" }}
-            aria-live="polite"
-          >
-            {spokenText || briefing.spoken}
-          </p>
-        </div>
-      </Panel>
-
-      <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+      {/* The state of things, one line each. This is the briefing - the spoken
+          version is these sentences joined, which is why it is not also
+          printed above. */}
+      <ul className="mt-6 grid gap-2 lg:grid-cols-2">
         {briefing.segments.map((segment, i) => (
-          <li
-            key={segment.label}
-            className="settle flex gap-3 px-4 py-3"
-            style={{ ...settle(i + 3), border: "1px solid var(--color-hair)", background: "var(--color-ink-100)" }}
-          >
-            <span
-              className="mt-[6px] block size-2 shrink-0 rotate-45"
-              style={{ background: TONE[segment.tone], boxShadow: `0 0 8px ${TONE[segment.tone]}` }}
-              aria-hidden
-            />
-            <div className="min-w-0">
-              <Label style={{ color: TONE[segment.tone] }}>{segment.label}</Label>
-              <p className="mt-1 text-[12px] leading-relaxed" style={{ color: "var(--color-muted)" }}>
-                {segment.text}
-              </p>
+          <li key={segment.label} className="settle surface px-4 py-3" style={settle(i + 3)}>
+            <div className="flex items-baseline gap-2.5">
+              <Dot color={TONE[segment.tone]} />
+              <Label tone={TONE[segment.tone]}>{segment.label}</Label>
             </div>
+            <p className="prose mt-1.5 pl-[17px] text-[12.5px]" style={{ color: "var(--color-muted)" }}>
+              {segment.text}
+            </p>
           </li>
         ))}
       </ul>
 
       {briefing.needsAttention.length > 0 && (
         <div className="settle mt-6" style={settle(9)}>
-          <Label style={{ color: "var(--color-attend)" }}>needs you</Label>
-          <ul className="mt-2 space-y-1.5">
-            {briefing.needsAttention.map((f) => (
+          <div className="flex items-baseline gap-3 pb-2.5">
+            <Label tone="var(--color-attend)">needs you</Label>
+            <button
+              onClick={onOpenRun}
+              className="focusable lbl ml-auto"
+              style={{ color: "var(--color-dim)" }}
+            >
+              open the run &rsaquo;
+            </button>
+          </div>
+          <ul className="space-y-1.5">
+            {briefing.needsAttention.map((f, i) => (
               <li
                 key={f.id}
-                className="flex items-start gap-3 px-4 py-2.5"
-                style={{ border: "1px solid var(--color-hair)", background: "var(--color-ink-100)" }}
+                className="settle surface flex items-start gap-3 px-4 py-2.5"
+                style={settle(i + 10)}
               >
-                <span className="mt-[3px]">
+                <span className="mt-[2px] shrink-0">
                   <SeverityChip severity={f.severity} />
                 </span>
                 <span className="text-[12.5px]" style={{ color: "var(--color-body)" }}>
@@ -315,6 +271,27 @@ export function Briefing({
           </ul>
         </div>
       )}
+
+      {/*
+        Voice settings, last and quiet. No picker: one voice is chosen
+        automatically - British RP, male, local - because the register is what
+        matters and a dropdown of forty system voices is a settings screen, not
+        a briefing. The name is shown so it is never a mystery which one spoke.
+      */}
+      <div className="mt-8 flex flex-wrap items-center gap-2.5">
+        <Chip
+          onClick={() => setAddress(address === "formal" ? "plain" : "formal")}
+          active={address === "formal"}
+          tone="var(--color-signal-deep)"
+        >
+          formal address
+        </Chip>
+        {voice.activeVoice && (
+          <span className="lbl" style={{ color: "var(--color-dim)" }}>
+            voice · {voice.activeVoice.name}
+          </span>
+        )}
+      </div>
     </section>
   );
 }
