@@ -38,7 +38,22 @@ export interface DossierReport {
   connectors: Array<{ name: string; status: string; note?: string }>;
   proposed: number;
   rejectedQuotes: Array<{ id: string; code: string; detail: string }>;
-  demotedEntailment: Array<{ id: string; statement: string; reason: string }>;
+  demotedEntailment: Array<{
+    id: string;
+    statement: string;
+    reason: string;
+    /**
+     * Whether anything actually judged this.
+     *
+     * "judged" means the verifier read the quote and said it does not support
+     * the claim. "unchecked" means nothing asked - the budget ran out first.
+     * Both are demoted, because an unverified claim must not get the benefit
+     * of the doubt, but they are entirely different facts about a run: one
+     * says the requirement overreached, the other says the run was too small,
+     * and only the second is fixed by spending more.
+     */
+    kind: "judged" | "unchecked";
+  }>;
   accepted: number;
   agentRuns: Array<AgentResult<unknown>>;
   usdEstimate: number;
@@ -376,11 +391,12 @@ export async function runDossier(opts: {
 
       if (result.status !== "ok" || !result.data) {
         // If entailment cannot be judged, the requirement does not get the
-        // benefit of the doubt.
+        // benefit of the doubt. The wording is deliberate: nothing read this,
+        // so the report must not imply that something did.
         return {
           entailed: false,
           confidence: "implied" as const,
-          reason: `Entailment could not be verified (${result.status}).`,
+          reason: `Nothing checked this - the verifier did not run (${result.status}).`,
         };
       }
       return result.data;
@@ -390,14 +406,19 @@ export async function runDossier(opts: {
   const { accepted: entailed, demoted } = await applyEntailment(quoted, verifier);
 
   for (const d of demoted) {
+    const unchecked = /did not run|could not be verified/i.test(d.reason);
+
     demotedEntailment.push({
       id: d.requirement.id,
       statement: d.requirement.statement,
       reason: d.reason,
+      kind: unchecked ? "unchecked" : "judged",
     });
     unknowns.push({
       question: d.requirement.statement,
-      why: `The quote does not support this: ${d.reason}`,
+      why: unchecked
+        ? `This was never verified: ${d.reason}`
+        : `The quote does not support this: ${d.reason}`,
       guess: d.requirement.statement,
     });
   }

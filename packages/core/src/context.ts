@@ -240,26 +240,50 @@ export async function applyEntailment(
 export function markConflicts(requirements: Requirement[]): Requirement[] {
   const NEGATION = /\b(not|never|cannot|can not|must not|no longer|without)\b/i;
 
+  const words = (statement: string) =>
+    statement
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 3);
+
   return requirements.map((req) => {
-    const subject = new Set(
-      req.statement
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((w) => w.length > 3),
-    );
+    const subject = new Set(words(req.statement));
 
     const conflicts = requirements
       .filter((other) => other.id !== req.id)
       .filter((other) => {
-        const otherWords = other.statement
-          .toLowerCase()
-          .split(/[^a-z0-9]+/)
-          .filter((w) => w.length > 3);
-        const overlap = otherWords.filter((w) => subject.has(w)).length;
-        // Same subject matter, opposite polarity.
-        const sameTopic = overlap >= 3;
+        const otherWords = words(other.statement);
+        if (!otherWords.length || !subject.size) return false;
+
+        const shared = otherWords.filter((w) => subject.has(w)).length;
+
+        /*
+          Near-identical wording, not merely the same topic.
+
+          This asked for three shared words of four letters or more, which any
+          two requirements about one feature satisfy - "bulk", "action",
+          "selection", "rows". Paired with a negation test, that made every
+          statement containing "not" contradict every statement that did not.
+          On the first real run it marked five of six requirements contested,
+          and a contested requirement is deliberately never used as an oracle,
+          so a word-frequency coincidence quietly destroyed almost everything
+          the team had gathered.
+
+          A shared vocabulary is not a shared claim. Two statements contradict
+          only if they assert opposite things about the same predicate, and the
+          only form of that a text heuristic can honestly recognise is the same
+          sentence said twice with opposite polarity. Anything subtler is a
+          judgement about meaning - which is the entailment agent's job, and
+          not something this should pretend to do.
+        */
+        const overlap = shared / Math.min(subject.size, otherWords.length);
+        const lengthRatio =
+          Math.min(subject.size, otherWords.length) / Math.max(subject.size, otherWords.length);
+
+        const nearlyTheSameSentence = overlap >= 0.75 && lengthRatio >= 0.6;
         const opposite = NEGATION.test(req.statement) !== NEGATION.test(other.statement);
-        return sameTopic && opposite;
+
+        return nearlyTheSameSentence && opposite;
       })
       .map((o) => o.id);
 

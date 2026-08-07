@@ -660,7 +660,13 @@ export async function main(argv: string[]): Promise<void> {
         console.log(`             [${r.code}] ${r.detail.slice(0, 84)}`);
       }
       console.log(
-        `  demoted    ${report.demotedEntailment.length} (quote did not entail the claim)`,
+        // Split, because they are different facts. One says the requirement
+        // overreached; the other says the run could not afford to look, which
+        // is the only one a bigger budget fixes.
+        `  demoted    ${report.demotedEntailment.filter((d) => d.kind !== "unchecked").length} (quote did not entail the claim)` +
+          (report.demotedEntailment.some((d) => d.kind === "unchecked")
+            ? `, ${report.demotedEntailment.filter((d) => d.kind === "unchecked").length} never checked (raise --max-usd)`
+            : ""),
       );
       for (const d of report.demotedEntailment.slice(0, 5)) {
         console.log(

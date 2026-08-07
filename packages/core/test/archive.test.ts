@@ -259,7 +259,14 @@ test("an unverifiable entailment fails closed", async () => {
     });
 
     assert.equal(context.requirements.length, 0, "unverified must not mean accepted");
-    assert.match(report.demotedEntailment[0].reason, /could not be verified/);
+
+    // Demoted, and marked as never having been judged. The report used to put
+    // this under "quote did not entail the claim", which says something read
+    // it and disagreed - when in fact nothing read it at all. On a real run,
+    // four of six demotions were this, and the summary described all six as
+    // judgements.
+    assert.equal(report.demotedEntailment[0].kind, "unchecked");
+    assert.match(report.demotedEntailment[0].reason, /did not run/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -302,4 +309,78 @@ test("an exhausted budget stops the pipeline without inventing a result", async 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("requirements about one feature are not marked as contradicting each other", async () => {
+  /*
+    A shared vocabulary is not a shared claim.
+
+    The conflict check asked for three shared words of four letters or more,
+    which any two requirements about one feature satisfy - "bulk", "action",
+    "selection", "rows". Paired with a negation test, every statement
+    containing "not" contradicted every statement that did not.
+
+    On the first real run against a documented project it marked five of six
+    requirements contested, and a contested requirement is never used as an
+    oracle - so a word-frequency coincidence silently destroyed almost
+    everything the team had gathered.
+  */
+  const { markConflicts } = await import("../src/context.ts");
+
+  const sameFeature = [
+    {
+      id: "R4",
+      statement:
+        "Bulk-action bar labels must be translated via existing i18n keys instead of hardcoded English.",
+      quote: "q",
+      sourceIds: [],
+      confidence: "explicit" as const,
+    },
+    {
+      id: "R5",
+      statement:
+        "The exam session list must not silently retain the previous page's rows when a fetch fails.",
+      quote: "q",
+      sourceIds: [],
+      confidence: "explicit" as const,
+    },
+    {
+      id: "R7",
+      statement:
+        "A bulk delete must animate every removed row out together only when the server deleted something.",
+      quote: "q",
+      sourceIds: [],
+      confidence: "explicit" as const,
+    },
+  ];
+
+  for (const r of markConflicts(sameFeature)) {
+    assert.equal(r.confidence, "explicit", `${r.id} was wrongly marked contested`);
+  }
+});
+
+test("a real contradiction is still caught", async () => {
+  // The same sentence with opposite polarity is the one case a text heuristic
+  // can honestly recognise, and it must keep recognising it.
+  const { markConflicts } = await import("../src/context.ts");
+
+  const marked = markConflicts([
+    {
+      id: "A",
+      statement: "A viewer must be able to reach the admin dashboard page.",
+      quote: "q",
+      sourceIds: [],
+      confidence: "explicit" as const,
+    },
+    {
+      id: "B",
+      statement: "A viewer must not be able to reach the admin dashboard page.",
+      quote: "q",
+      sourceIds: [],
+      confidence: "explicit" as const,
+    },
+  ]);
+
+  assert.ok(marked.every((r) => r.confidence === "contested"));
+  assert.deepEqual(marked[0].conflictsWith, ["B"]);
 });
