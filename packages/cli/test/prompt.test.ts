@@ -9,11 +9,11 @@ import { checkbox, toggleChoice, type Choice } from "../src/prompt.ts";
  */
 
 const CHOICES: Choice[] = [
-  { value: "recon", label: "PATHFINDER", locked: true },
-  { value: "research", label: "DOSSIER" },
-  { value: "qa", label: "CRUCIBLE", requires: ["recon"] },
-  { value: "delivery", label: "DISPATCH", requires: ["qa"] },
-  { value: "release", label: "CLEARANCE", requires: ["qa"] },
+  { value: "recon", label: "SCOUT", locked: true },
+  { value: "research", label: "ARCHIVE" },
+  { value: "qa", label: "PROVER", requires: ["recon"] },
+  { value: "delivery", label: "SCRIBE", requires: ["qa"] },
+  { value: "release", label: "JUDGE", requires: ["qa"] },
 ];
 
 const set = (...v: string[]) => new Set(v);

@@ -32,7 +32,7 @@ import {
   runDossier,
   Budget,
   MessagesRunner,
-  DOSSIER_SCHEMAS,
+  ARCHIVE_SCHEMAS,
   AGENT_SCHEMAS,
   oracleCeiling,
   addProject,
@@ -111,7 +111,7 @@ const HELP = `
       --fleet is passed.
 
   clarvis recon [--project <dir>] [--name <name>] [--max-usd <n>] [--dry-run]
-      PATHFINDER: survey the project, work out how to boot it, how it logs in,
+      SCOUT: survey the project, work out how to boot it, how it logs in,
       and what must never be written to. Writes .clarvis/profile.json.
 
   clarvis guard [--project <dir>] [--profile <file>] [--url <url>]
@@ -123,11 +123,11 @@ const HELP = `
 
   clarvis research [--project <dir>] [--base <ref>] [--feature <name>] [--dirty]
                    [--max-usd <n>] [--dry-run]
-      DOSSIER: gather sources, extract requirements, verify every quote,
+      ARCHIVE: gather sources, extract requirements, verify every quote,
       and write .clarvis/context.json.
 
   clarvis project add <dir> [--name <name>] [--fleet <key>]... | list | remove <dir|id>
-      Manage projects and which teams each one runs. PATHFINDER is always in.
+      Manage projects and which teams each one runs. SCOUT is always in.
       Re-running add on an existing project updates its team selection.
 
   clarvis benchmark [--project <dir>] [--key <bugs.json>] [--run <id>]
@@ -164,11 +164,11 @@ const HELP = `
 
   clarvis run [--project <dir>] [--fleet <name>]... [--axis <key>]...
               [--feature <name>] [--brief <text>] [--force] [--no-author]
-      CRUCIBLE: author a spec per axis, gate it, boot, apply the guard, run,
+      PROVER: author a spec per axis, gate it, boot, apply the guard, run,
       re-run each failure in isolation to grade it, and write a run.
       --no-author reuses the specs already in .clarvis/scratch; --no-triage
       leaves every finding at PLAUSIBLE. --fleet takes a key or a codename;
-      PATHFINDER always runs. Old runs are pruned to --keep-runs (default 10).
+      SCOUT always runs. Old runs are pruned to --keep-runs (default 10).
 
   clarvis ui [--project <dir>] [--port <n>] [--open]
       Serve the dashboard and the run API. --open launches a browser.
@@ -315,7 +315,7 @@ export async function main(argv: string[]): Promise<void> {
       }
 
       // A code graph is not a team, so it is a separate question. It feeds
-      // PATHFINDER's risk hotspots and VECTOR's blast radius, and it is off
+      // SCOUT's risk hotspots and FOREMAN's blast radius, and it is off
       // unless asked for: graphify is a second tool that may not be installed.
       const graph = new GraphConnector({ projectRoot });
       const graphAvailable = await graph.isAvailable();
@@ -323,8 +323,8 @@ export async function main(argv: string[]): Promise<void> {
       let useGraph = values.graph === true;
       if (!preset?.length && graphAvailable && values.graph === undefined) {
         console.log("");
-        console.log(`  A code graph tells VECTOR what a change actually reaches, and gives`);
-        console.log(`  PATHFINDER its risk hotspots. Local AST parsing - no model, no usage.`);
+        console.log(`  A code graph tells FOREMAN what a change actually reaches, and gives`);
+        console.log(`  SCOUT its risk hotspots. Local AST parsing - no model, no usage.`);
         useGraph = await confirm("Build a code graph for this project?", true);
       } else if (useGraph && !graphAvailable) {
         console.log(`\n  note       graphify is not installed, so no code graph will be built.`);
@@ -382,7 +382,7 @@ export async function main(argv: string[]): Promise<void> {
 
       if (!hasProfile) {
         console.log("");
-        console.log(`  PATHFINDER has not walked this project yet. Nothing can run without a profile.`);
+        console.log(`  SCOUT has not walked this project yet. Nothing can run without a profile.`);
         const now = await confirm("Run recon now?", true);
         if (now) {
           console.log("");
@@ -606,7 +606,7 @@ export async function main(argv: string[]): Promise<void> {
       // an API key. Without one, fall back to the local claude binary rather
       // than failing several steps into the run with an auth error.
       const runner = hasApiKey()
-        ? new MessagesRunner({ schemas: DOSSIER_SCHEMAS })
+        ? new MessagesRunner({ schemas: ARCHIVE_SCHEMAS })
         : new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS });
       if (!hasApiKey()) {
         console.log(`  runner     claude code (no ANTHROPIC_API_KEY set)`);
@@ -1463,7 +1463,7 @@ async function runCommand(opts: {
     );
   }
 
-  /* --- VECTOR: decide what is worth testing -------------------------------- */
+  /* --- FOREMAN: decide what is worth testing -------------------------------- */
 
   let plan: TestPlan | undefined;
   let axesToRun = allowed;
@@ -1927,7 +1927,7 @@ async function runCommand(opts: {
 
   await markStage(projectRoot, run, "deliver", "drafting tickets and judging the release");
 
-  /* --- DISPATCH and CLEARANCE: what happens to what we found --------------- */
+  /* --- SCRIBE and JUDGE: what happens to what we found --------------- */
 
   if (enabled.has("delivery")) {
     const dispatch = await draftTickets({

@@ -169,13 +169,38 @@ function Preparation({ prep }: { prep: NonNullable<Run["preparation"]> }) {
 const FLEET_ORDER = ["recon", "research", "lead", "qa", "delivery", "release"];
 
 const FLEET_NAME: Record<string, string> = {
-  recon: "PATHFINDER",
-  research: "DOSSIER",
-  lead: "VECTOR",
-  qa: "CRUCIBLE",
-  delivery: "DISPATCH",
-  release: "CLEARANCE",
+  recon: "SCOUT",
+  research: "ARCHIVE",
+  lead: "FOREMAN",
+  qa: "PROVER",
+  delivery: "SCRIBE",
+  release: "JUDGE",
 };
+
+/**
+ * Role prefixes as they were written before the teams were renamed.
+ *
+ * Applied at display time only. A run recorded months ago genuinely did
+ * invoke an agent called `crucible-author`, and rewriting its file to say
+ * otherwise would be falsifying a record to tidy a label. But the role string
+ * is an implementation identifier rather than evidence, and showing
+ * `crucible-author` beneath a team called PROVER reproduces exactly the
+ * confusion the rename was meant to end.
+ */
+const RETIRED_ROLE_PREFIX: Record<string, string> = {
+  pathfinder: "scout",
+  dossier: "archive",
+  vector: "foreman",
+  crucible: "prover",
+  dispatch: "scribe",
+  clearance: "judge",
+};
+
+function roleLabel(role: string): string {
+  const [prefix, ...rest] = role.split("-");
+  const current = RETIRED_ROLE_PREFIX[prefix];
+  return current && rest.length ? [current, ...rest].join("-") : role;
+}
 
 /** What a team's silence actually cost. */
 const SILENT: Record<string, string> = {
@@ -254,7 +279,9 @@ function Teams({ run }: { run: Run }) {
                 <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 pl-[17px]">
                   {fleet.map((agent) => (
                     <li key={agent.id} className="flex items-baseline gap-1.5">
-                      <Mono tone={agent.status === "ok" ? "var(--color-muted)" : WARN}>{agent.role}</Mono>
+                      <Mono tone={agent.status === "ok" ? "var(--color-muted)" : WARN}>
+                        {roleLabel(agent.role)}
+                      </Mono>
                       {agent.status !== "ok" && <Label tone={WARN}>{agent.status}</Label>}
                     </li>
                   ))}

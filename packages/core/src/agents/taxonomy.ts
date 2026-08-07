@@ -161,7 +161,7 @@ export async function deriveTaxonomy(opts: DeriveOptions): Promise<{
 
   const result = await runAgent<TaxonomyProposal>({
     runner: opts.runner,
-    definition: getAgent("pathfinder-taxonomy"),
+    definition: getAgent("scout-taxonomy"),
     prompt,
     validate,
     budget: opts.budget,

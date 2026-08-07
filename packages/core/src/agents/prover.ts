@@ -8,7 +8,7 @@ import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
 import { describeViolations, gateSpec, type GateResult } from "./specGate.ts";
 
 /**
- * CRUCIBLE: author the specs, gate them, run them, and turn what failed into
+ * PROVER: author the specs, gate them, run them, and turn what failed into
  * findings that cite something.
  *
  * The agent returns spec SOURCE and this module writes the file. It is not given
@@ -374,14 +374,14 @@ export async function authorSpecs(opts: AuthorOptions): Promise<CrucibleReport> 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await runAgent<AuthorOutput>({
         runner: opts.runner,
-        definition: getAgent("crucible-author"),
+        definition: getAgent("prover-author"),
         prompt:
           lastViolations.length
             ? `${brief}\n\nYour previous spec was REJECTED before it ran:\n${lastViolations.join("\n")}`
             : brief,
         validate: validateAuthor,
         budget: opts.budget,
-        agentId: `crucible-author-${plan.axis}-${attempt}`,
+        agentId: `prover-author-${plan.axis}-${attempt}`,
         maxAttempts: 1,
         transcriptDir: opts.transcriptDir,
         redact: opts.redact,
@@ -665,7 +665,7 @@ export function findingsFromReport(opts: {
       },
       determinism:
         t.status === "flaky" ? { verdict: "flaky" } : undefined,
-      foundBy: `crucible-author-${opts.axis}`,
+      foundBy: `prover-author-${opts.axis}`,
       createdAt: new Date().toISOString(),
       tracker: { status: "none" },
     } satisfies Finding;

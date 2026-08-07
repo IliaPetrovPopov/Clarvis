@@ -113,7 +113,7 @@ export async function loadFixture(): Promise<LoadedRuns> {
  * Everything a run produces that is not run.json.
  *
  * Four of the six teams wrote their output to a file nothing served, so the
- * tickets DISPATCH drafted and the verdict CLEARANCE reached could be read
+ * tickets SCRIBE drafted and the verdict JUDGE reached could be read
  * only in the terminal. The rest is what a reader needs to judge a result at
  * all: the requirements a finding cites, the plan that says what was
  * deliberately not tested, and the route map that says how much of the

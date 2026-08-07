@@ -87,7 +87,7 @@ test("every member is still reported, and says which cluster decided it", () => 
 
   cluster.representative.tier = "DISCARDED";
   cluster.representative.tierReason = "The fault is in the test.";
-  cluster.representative.verifiedBy = "crucible-triage-1";
+  cluster.representative.verifiedBy = "prover-triage-1";
   applyClusterVerdict(cluster, cluster.representative);
 
   assert.equal(a.tier, "DISCARDED");

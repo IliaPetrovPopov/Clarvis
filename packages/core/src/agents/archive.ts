@@ -15,7 +15,7 @@ import { getAgent } from "./definitions.ts";
 import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
 
 /**
- * DOSSIER: assemble what a feature is supposed to do.
+ * ARCHIVE: assemble what a feature is supposed to do.
  *
  * The pipeline is deliberately shaped so that the model's contribution is
  * bracketed on both sides by deterministic code:
@@ -296,7 +296,7 @@ export async function runDossier(opts: {
 
   const extract = await runAgent<ExtractOutput>({
     runner: opts.runner,
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: extractPrompt,
     validate: validateExtract,
     budget: opts.budget,
@@ -363,12 +363,12 @@ export async function runDossier(opts: {
     async check(input: { quote: string; statement: string }) {
       const result = await runAgent({
         runner: opts.runner,
-        definition: getAgent("dossier-entail"),
+        definition: getAgent("archive-entail"),
         // Only the two strings. No feature, no code, no provenance.
         prompt: `QUOTE:\n${input.quote}\n\nSTATEMENT:\n${input.statement}`,
         validate: validateEntail,
         budget: opts.budget,
-        agentId: `dossier-entail-${demotedEntailment.length + agentRuns.length}`,
+        agentId: `archive-entail-${demotedEntailment.length + agentRuns.length}`,
         transcriptDir: opts.transcriptDir,
         redact: opts.redact,
       });

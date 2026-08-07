@@ -5,7 +5,7 @@ import type { Finding, Run } from "./types.ts";
 /**
  * Keeping the specs that earned their place.
  *
- * CRUCIBLE authors specs into a scratch directory, runs them, and the next run
+ * PROVER authors specs into a scratch directory, runs them, and the next run
  * overwrites them. That throws away the single most valuable artifact the whole
  * system produces: a spec that caught a real bug is a regression test, and a
  * regression test is the thing that stops the bug coming back.

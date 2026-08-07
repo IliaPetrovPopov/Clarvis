@@ -132,7 +132,7 @@ export function decideTier(input: {
       tier: "PLAUSIBLE",
       reason:
         `Reproduces every time, but its only oracle is ${input.oracleType} - nothing written by a ` +
-        `human says this is wrong. Run DOSSIER to raise the ceiling.`,
+        `human says this is wrong. Run ARCHIVE to raise the ceiling.`,
     };
   }
 
@@ -301,7 +301,7 @@ export async function triageFindings(opts: TriageOptions): Promise<{
 
       const judgement = await runAgent<TriageJudgement>({
         runner: opts.runner,
-        definition: getAgent("crucible-triage"),
+        definition: getAgent("prover-triage"),
         prompt: [
           `FINDING: ${finding.title}`,
           `AXIS: ${finding.axis}`,
@@ -323,7 +323,7 @@ export async function triageFindings(opts: TriageOptions): Promise<{
         ].join("\n"),
         validate: validateTriage,
         budget: opts.budget,
-        agentId: `crucible-triage-${i + 1}`,
+        agentId: `prover-triage-${i + 1}`,
         transcriptDir: opts.transcriptDir,
         redact: opts.redact,
       });
@@ -361,7 +361,7 @@ export async function triageFindings(opts: TriageOptions): Promise<{
     finding.tier = decided.tier;
     finding.tierReason = reason ? `${decided.reason} ${reason}` : decided.reason;
     finding.determinism = { runs: attempts, failures, verdict };
-    finding.verifiedBy = `crucible-triage-${i + 1}`;
+    finding.verifiedBy = `prover-triage-${i + 1}`;
 
     return {
       finding,

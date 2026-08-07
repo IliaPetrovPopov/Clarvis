@@ -27,7 +27,7 @@ import type { FleetKey } from "../fleets.ts";
 export type AgentTool = "read" | "grep" | "glob";
 
 export interface AgentDefinition {
-  /** Stable id, e.g. "dossier-docs". */
+  /** Stable id, e.g. "archive-docs". */
   role: string;
   fleet: FleetKey;
   title: string;
@@ -54,10 +54,10 @@ You have no network access and no shell. Everything you need has already been
 retrieved and is in your input.`.trim();
 
 export const AGENTS: Record<string, AgentDefinition> = {
-  /* ------------------------------------------------------------ DOSSIER */
+  /* ------------------------------------------------------------ ARCHIVE */
 
-  "dossier-extract": {
-    role: "dossier-extract",
+  "archive-extract": {
+    role: "archive-extract",
     fleet: "research",
     title: "Requirement extractor",
     purpose: "Reads retrieved sources and proposes testable requirements, each with a verbatim quote.",
@@ -85,8 +85,8 @@ requirement. Put it in "unknowns" with your reasoning in "guess". Guesses there
 are useful. Guesses dressed up as requirements corrupt everything downstream.`.trim(),
   },
 
-  "dossier-entail": {
-    role: "dossier-entail",
+  "archive-entail": {
+    role: "archive-entail",
     fleet: "research",
     title: "Entailment verifier",
     purpose: "Judges whether a quote actually supports the statement drawn from it.",
@@ -111,8 +111,8 @@ Being strict here is the point. A statement you wave through becomes a standard
 that other work is judged against.`.trim(),
   },
 
-  "dossier-synthesis": {
-    role: "dossier-synthesis",
+  "archive-synthesis": {
+    role: "archive-synthesis",
     fleet: "research",
     title: "Context synthesiser",
     purpose: "Merges verified requirements into one context, and lists what remains unknown.",
@@ -136,10 +136,10 @@ The "unknowns" list is a deliverable, not an admission of failure. It tells a
 human exactly where testing will be blind.`.trim(),
   },
 
-  /* --------------------------------------------------------- PATHFINDER */
+  /* --------------------------------------------------------- SCOUT */
 
-  "pathfinder-boot": {
-    role: "pathfinder-boot",
+  "scout-boot": {
+    role: "scout-boot",
     fleet: "recon",
     title: "Boot analyst",
     purpose: "Works out how to start the project, from its manifests and docs.",
@@ -171,8 +171,8 @@ separately. A wrong guess wastes a real boot attempt and sends every later fleet
 at an app that is not there.`.trim(),
   },
 
-  "pathfinder-auth": {
-    role: "pathfinder-auth",
+  "scout-auth": {
+    role: "scout-auth",
     fleet: "recon",
     title: "Auth analyst",
     purpose: "Identifies the login mechanism and the roles worth testing.",
@@ -219,8 +219,8 @@ Never invent a credential, and never propose one that merely looks plausible.
 A fabricated credential produces a run that silently tested nothing.`.trim(),
   },
 
-  "pathfinder-safety": {
-    role: "pathfinder-safety",
+  "scout-safety": {
+    role: "scout-safety",
     fleet: "recon",
     title: "Safety analyst",
     purpose: "Finds hosts that must never be written to.",
@@ -244,10 +244,10 @@ local address - say what evidence made you confident.`.trim(),
   },
 
 
-  /* ------------------------------------------------------------- VECTOR */
+  /* ------------------------------------------------------------- FOREMAN */
 
-  "vector-plan": {
-    role: "vector-plan",
+  "foreman-plan": {
+    role: "foreman-plan",
     fleet: "lead",
     title: "Test lead",
     purpose: "Ranks the axes worth running for a change, and says what deferring the rest costs.",
@@ -282,8 +282,8 @@ reason and wastes the run you were trying to prioritise.`.trim(),
   },
 
 
-  "pathfinder-taxonomy": {
-    role: "pathfinder-taxonomy",
+  "scout-taxonomy": {
+    role: "scout-taxonomy",
     fleet: "recon",
     title: "Failure analyst",
     purpose: "Derives what actually goes wrong in this project, from its own history of fixes.",
@@ -320,10 +320,10 @@ Group by cause, not by wording. Three fixes for "wrong client sees data",
 "cross-tenant leak" and "org filter missing" are one theme, not three.`.trim(),
   },
 
-  /* ----------------------------------------------------------- CRUCIBLE */
+  /* ----------------------------------------------------------- PROVER */
 
-  "crucible-author": {
-    role: "crucible-author",
+  "prover-author": {
+    role: "prover-author",
     fleet: "qa",
     title: "Spec author",
     purpose: "Writes runnable Playwright specs for one test axis.",
@@ -391,8 +391,8 @@ Rules:
   reported honestly is worth more than a green test that asserts nothing.`.trim(),
   },
 
-  "crucible-triage": {
-    role: "crucible-triage",
+  "prover-triage": {
+    role: "prover-triage",
     fleet: "qa",
     title: "Triage",
     purpose: "Tries to reproduce a finding cold, from artifacts alone.",
@@ -415,10 +415,10 @@ a bug in the test, not in the product, and reporting it as the latter destroys
 trust in everything else you file.`.trim(),
   },
 
-  /* ----------------------------------------------------------- DISPATCH */
+  /* ----------------------------------------------------------- SCRIBE */
 
-  "dispatch-draft": {
-    role: "dispatch-draft",
+  "scribe-draft": {
+    role: "scribe-draft",
     fleet: "delivery",
     title: "Ticket writer",
     purpose: "Writes one confirmed finding up as a ticket a human would have written.",
@@ -450,10 +450,10 @@ seen this tool. That means:
 Use plain hyphens, never long dashes.`.trim(),
   },
 
-  /* ---------------------------------------------------------- CLEARANCE */
+  /* ---------------------------------------------------------- JUDGE */
 
-  "clearance-notes": {
-    role: "clearance-notes",
+  "judge-notes": {
+    role: "judge-notes",
     fleet: "release",
     title: "Release writer",
     purpose: "Explains a ship/hold verdict and writes the notes. Cannot change the verdict.",

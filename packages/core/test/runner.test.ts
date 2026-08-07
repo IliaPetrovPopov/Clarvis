@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePlaywrightReport, renderPlaywrightConfig } from "../src/runner.ts";
-import { failedTests, findingsFromReport } from "../src/agents/crucible.ts";
+import { failedTests, findingsFromReport } from "../src/agents/prover.ts";
 
 /**
  * These counts are the product's only source of truth about what happened. The
@@ -224,7 +224,7 @@ const specWith = (source: string, covers: string[] = []) =>
   ({ axis: "rbac-scope", file: "x.spec.ts", source, covers, attempts: 1, untested: [] }) as never;
 
 test("a requirement id is matched on a word boundary, not as a substring", async () => {
-  const { citesRequirement, oracleFor } = await import("../src/agents/crucible.ts");
+  const { citesRequirement, oracleFor } = await import("../src/agents/prover.ts");
 
   // The bug this exists for: `includes("r1")` matches inside "r10", and since
   // the scan returned the first match, a live run attributed nearly every
@@ -243,7 +243,7 @@ test("a requirement id is matched on a word boundary, not as a substring", async
 });
 
 test("a contested requirement is never used as an oracle", async () => {
-  const { oracleFor } = await import("../src/agents/crucible.ts");
+  const { oracleFor } = await import("../src/agents/prover.ts");
   // Citing a requirement that other requirements contradict would present a
   // disagreement as a standard.
   const oracle = oracleFor(
@@ -256,7 +256,7 @@ test("a contested requirement is never used as an oracle", async () => {
 });
 
 test("the citation and the oracle type never disagree", async () => {
-  const { oracleFor } = await import("../src/agents/crucible.ts");
+  const { oracleFor } = await import("../src/agents/prover.ts");
   // A live run printed "oracle code-intent (r1 (README.md:25))" - a weak label
   // beside a cited source, which is two different claims about the same finding.
   for (const cite of ["r1 and r2", "r2", "r10"]) {
@@ -268,7 +268,7 @@ test("the citation and the oracle type never disagree", async () => {
 });
 
 test("an explicit requirement wins over an implied one cited in the same spec", async () => {
-  const { oracleFor } = await import("../src/agents/crucible.ts");
+  const { oracleFor } = await import("../src/agents/prover.ts");
   const ctx = {
     ...CTX,
     requirements: [
@@ -286,7 +286,7 @@ test("a finding is attributed to the requirement cited in its own test, not the 
   // /admin rule - including the empty-title, HttpOnly and Arabic locale bugs.
   // The author had cited the right id above each assertion; the matcher was
   // scanning the whole file and taking the first explicit match.
-  const { oracleFor, testRegion } = await import("../src/agents/crucible.ts");
+  const { oracleFor, testRegion } = await import("../src/agents/prover.ts");
 
   const source = `import { test, expect } from "@playwright/test";
 
@@ -322,7 +322,7 @@ test("empty note title is rejected", async ({ request }) => {
 });
 
 test("a test that cites nothing gets code-intent, not the file's first requirement", async () => {
-  const { oracleFor } = await import("../src/agents/crucible.ts");
+  const { oracleFor } = await import("../src/agents/prover.ts");
   const source = `import { test, expect } from "@playwright/test";
 
 test("something incidental", async () => {

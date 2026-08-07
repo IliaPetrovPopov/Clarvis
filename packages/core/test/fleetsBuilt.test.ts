@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planRun, plannedAxisOrder } from "../src/agents/vector.ts";
-import { draftTickets, titleReadsLikeAssertion, renderDraft } from "../src/agents/dispatch.ts";
-import { decideAndDescribe } from "../src/agents/clearance.ts";
+import { planRun, plannedAxisOrder } from "../src/agents/foreman.ts";
+import { draftTickets, titleReadsLikeAssertion, renderDraft } from "../src/agents/scribe.ts";
+import { decideAndDescribe } from "../src/agents/judge.ts";
 import { Budget } from "../src/agents/budget.ts";
 import { AXES, type Finding, type Profile, type Run } from "../src/types.ts";
 import type { AgentRunner } from "../src/agents/runtime.ts";
@@ -50,7 +50,7 @@ const SCOPE: FeatureScope = {
   truncation: [],
 };
 
-/* ------------------------------------------------------------------ VECTOR */
+/* ------------------------------------------------------------------ FOREMAN */
 
 test("the plan and the deferred list together account for every axis", async () => {
   // An axis in neither list is an axis nobody decided about, and a bug it would
@@ -75,7 +75,7 @@ test("the plan and the deferred list together account for every axis", async () 
   assert.ok(plan.notes.some((n) => /missing from the plan entirely/.test(n)));
 });
 
-test("VECTOR cannot resurrect an axis the guard refused", async () => {
+test("FOREMAN cannot resurrect an axis the guard refused", async () => {
   const { plan, report } = await planRun({
     scope: SCOPE,
     profile: PROFILE,
@@ -137,7 +137,7 @@ test("a failed plan runs everything rather than nothing", async () => {
   assert.deepEqual(plannedAxisOrder(plan), [...AXES]);
 });
 
-/* ---------------------------------------------------------------- DISPATCH */
+/* ---------------------------------------------------------------- SCRIBE */
 
 const finding = (over: Partial<Finding> = {}): Finding => ({
   id: "f1",
@@ -279,7 +279,7 @@ test("nothing confirmed means nothing drafted, and it says what would fix that",
   assert.ok(bundle.notes.some((n) => /run research/i.test(n)));
 });
 
-/* --------------------------------------------------------------- CLEARANCE */
+/* --------------------------------------------------------------- JUDGE */
 
 const NOTES = {
   summary: "Holding: one confirmed critical.",

@@ -6,7 +6,7 @@ import { getAgent } from "./definitions.ts";
 import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
 
 /**
- * CLEARANCE: ship or hold, and the notes that go with it.
+ * JUDGE: ship or hold, and the notes that go with it.
  *
  * The verdict itself is `decideRelease` - deterministic, already written, and
  * deliberately not a model's opinion. Nobody should be told "ship it" by
@@ -93,7 +93,7 @@ export async function decideAndDescribe(opts: ClearanceOptions): Promise<{
 
   const result = await runAgent<NotesProposal>({
     runner: opts.runner,
-    definition: getAgent("clearance-notes"),
+    definition: getAgent("judge-notes"),
     prompt: [
       `THE VERDICT IS: ${verdict.decision.toUpperCase()}. This is decided and you cannot change it.`,
       "",

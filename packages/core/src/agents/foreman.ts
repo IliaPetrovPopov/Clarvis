@@ -7,14 +7,14 @@ import { getAgent } from "./definitions.ts";
 import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
 
 /**
- * VECTOR: decide what is worth testing.
+ * FOREMAN: decide what is worth testing.
  *
  * This fleet only earns its cost when there is more work than budget. On a
- * small app "run every axis" is a fine plan and VECTOR is overhead; on a real
+ * small app "run every axis" is a fine plan and FOREMAN is overhead; on a real
  * codebase you cannot test everything, and the choice of what to skip is the
  * single decision that most affects whether a run finds anything.
  *
- * The asymmetry that shapes this file: an axis VECTOR drops is an axis that
+ * The asymmetry that shapes this file: an axis FOREMAN drops is an axis that
  * never runs, and a bug it would have caught is indistinguishable from no bug
  * at all. So the model here can REORDER and it can EXPLAIN, but the plan it
  * produces is always bounded by code:
@@ -113,7 +113,7 @@ export interface PlanOptions {
   budget: Budget;
   /** Axes the caller is willing to run. Defaults to all of them. */
   candidateAxes?: Axis[];
-  /** Axes the guard has already refused. VECTOR may not resurrect these. */
+  /** Axes the guard has already refused. FOREMAN may not resurrect these. */
   guardSkipped?: Axis[];
   transcriptDir?: string;
   redact?: (text: string) => string;
@@ -243,7 +243,7 @@ export async function planRun(opts: PlanOptions): Promise<{ plan: TestPlan; repo
 
   const result = await runAgent<PlanProposal>({
     runner: opts.runner,
-    definition: getAgent("vector-plan"),
+    definition: getAgent("foreman-plan"),
     prompt: renderBrief(opts, candidates, reach),
     validate: validatePlan,
     budget: opts.budget,

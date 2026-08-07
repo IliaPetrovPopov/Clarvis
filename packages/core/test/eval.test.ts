@@ -333,7 +333,7 @@ const mkRun = (findings: Finding[], usd = 1, axes = ["rbac-scope"]): Run => ({
 test("ablation reports what removing a fleet costs, against the full arm", () => {
   const result = compareAblations([
     { label: "full", runs: [mkRun([finding("1", "CONFIRMED"), finding("2", "PLAUSIBLE")], 10)] },
-    { label: "without DOSSIER", removed: "research", runs: [mkRun([finding("1", "PLAUSIBLE")], 6)] },
+    { label: "without ARCHIVE", removed: "research", runs: [mkRun([finding("1", "PLAUSIBLE")], 6)] },
   ]);
 
   const arm = result.rows.find((r) => r.removed === "research")!;
@@ -345,14 +345,14 @@ test("ablation reports what removing a fleet costs, against the full arm", () =>
 test("an ablation arm with too few runs is flagged as indistinguishable from noise", () => {
   const result = compareAblations([
     { label: "full", runs: [mkRun([], 1)] },
-    { label: "without VECTOR", removed: "lead", runs: [mkRun([], 1)] },
+    { label: "without FOREMAN", removed: "lead", runs: [mkRun([], 1)] },
   ]);
   assert.ok(result.rows.every((r) => r.caveat));
   assert.ok(result.notes.some((n) => /variance/.test(n)));
 });
 
 test("missing the full arm makes every delta absent rather than wrong", () => {
-  const result = compareAblations([{ label: "without DOSSIER", removed: "research", runs: [mkRun([], 1)] }]);
+  const result = compareAblations([{ label: "without ARCHIVE", removed: "research", runs: [mkRun([], 1)] }]);
   assert.equal(result.rows[0].deltaFindings, undefined);
   assert.ok(result.notes.some((n) => /nothing to compare against/.test(n)));
 });

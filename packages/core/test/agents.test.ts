@@ -74,16 +74,16 @@ test("no agent may write a file, and a stray tool is refused", () => {
     assert.equal(def.tools.some((t) => /write|edit/i.test(t)), false, `${def.role} must not write`);
   }
 
-  const bad: AgentDefinition = { ...getAgent("dossier-extract"), tools: ["write_scratch" as never] };
+  const bad: AgentDefinition = { ...getAgent("archive-extract"), tools: ["write_scratch" as never] };
   assert.throws(() => assertToolPolicy(bad), /may not write files/);
 
-  const worse: AgentDefinition = { ...getAgent("dossier-extract"), tools: ["bash" as never] };
+  const worse: AgentDefinition = { ...getAgent("archive-extract"), tools: ["bash" as never] };
   assert.throws(() => assertToolPolicy(worse), /may not write files, access the network, or run a shell/);
 });
 
 test("research agents get no tools at all - connectors retrieve, agents reason", () => {
-  assert.deepEqual(getAgent("dossier-extract").tools, []);
-  assert.deepEqual(getAgent("dossier-entail").tools, []);
+  assert.deepEqual(getAgent("archive-extract").tools, []);
+  assert.deepEqual(getAgent("archive-entail").tools, []);
 });
 
 /* ----------------------------------------------------- json extraction */
@@ -134,7 +134,7 @@ test("a valid response is returned with usage and cost recorded", async () => {
   const budget = new Budget({ maxUsd: 5 });
   const result = await runAgent({
     runner: fakeRunner([{ text: '{"name":"ok"}' }]),
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     validate: okValidator,
     budget,
@@ -151,7 +151,7 @@ test("invalid output is retried with the reason fed back, then fails loudly", as
   const runner = fakeRunner([{ text: "garbage" }, { text: '{"wrong":true}' }, { text: "still garbage" }]);
   const result = await runAgent({
     runner,
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     validate: okValidator,
     budget: new Budget({ maxUsd: 5 }),
@@ -167,7 +167,7 @@ test("a retry that succeeds is charged for both attempts", async () => {
   const budget = new Budget({ maxUsd: 5 });
   const result = await runAgent({
     runner: fakeRunner([{ text: "nope" }, { text: '{"name":"second try"}' }]),
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     validate: okValidator,
     budget,
@@ -186,7 +186,7 @@ test("an exhausted budget stops the agent before it calls the model", async () =
 
   const result = await runAgent({
     runner,
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     validate: okValidator,
     budget,
@@ -200,7 +200,7 @@ test("an exhausted budget stops the agent before it calls the model", async () =
 test("a runner exception is reported, never swallowed", async () => {
   const result = await runAgent({
     runner: fakeRunner([new Error("connection reset")]),
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     validate: okValidator,
     budget: new Budget({ maxUsd: 5 }),
@@ -214,7 +214,7 @@ test("a runner exception is reported, never swallowed", async () => {
 test("an empty response is distinguished from invalid output", async () => {
   const result = await runAgent({
     runner: fakeRunner([{ text: "   " }]),
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     validate: okValidator,
     budget: new Budget({ maxUsd: 5 }),
@@ -231,7 +231,7 @@ test("transcripts are written for failures too, with secrets redacted", async ()
     const secret = "SUPER_SECRET_TOKEN";
     const result = await runAgent({
       runner: fakeRunner([{ text: `leaking ${secret} and no json` }]),
-      definition: getAgent("dossier-extract"),
+      definition: getAgent("archive-extract"),
       prompt: `context containing ${secret}`,
       validate: okValidator,
       budget: new Budget({ maxUsd: 5 }),
@@ -262,7 +262,7 @@ test("a misconfigured agent is refused before it can run", async () => {
     () =>
       runAgent({
         runner,
-        definition: { ...getAgent("dossier-extract"), tools: ["bash" as never] },
+        definition: { ...getAgent("archive-extract"), tools: ["bash" as never] },
         prompt: "go",
         validate: okValidator,
         budget: new Budget({ maxUsd: 5 }),
@@ -314,7 +314,7 @@ test("a failed attempt that spent money is still charged to the budget", async (
 
   const result = await runAgent({
     runner,
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: "go",
     validate: okValidator,
     budget,

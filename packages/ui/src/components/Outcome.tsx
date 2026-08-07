@@ -7,7 +7,7 @@ import { Label, Mono, settle } from "./primitives";
  *
  * Both were written to disk by teams that ran, and neither had ever been
  * readable outside a terminal - so two of the six fleets did work nobody could
- * see. DISPATCH in particular refuses to file anything by default, which means
+ * see. SCRIBE in particular refuses to file anything by default, which means
  * its drafts sit on disk waiting for a human, and a human who cannot read them
  * is a human who will not file them.
  */
@@ -164,7 +164,7 @@ export function Outcome({ verdict, drafts }: { verdict?: VerdictLike; drafts?: D
       <div className="px-5 py-6 lg:px-8">
         <div className="surface px-4 py-5">
           <p className="prose text-[12.5px]" style={{ color: "var(--color-dim)" }}>
-            No verdict and no tickets for this run. DISPATCH and CLEARANCE either were not enabled
+            No verdict and no tickets for this run. SCRIBE and JUDGE either were not enabled
             or had nothing confirmed to act on - a ticket is only drafted for a finding that
             survived triage.
           </p>

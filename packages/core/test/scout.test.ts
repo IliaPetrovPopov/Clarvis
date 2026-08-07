@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runRecon, bootCommandExists, profileIsRunnable } from "../src/agents/pathfinder.ts";
+import { runRecon, bootCommandExists, profileIsRunnable } from "../src/agents/scout.ts";
 import { surveyProject, extractHosts, isLiveEnvFile } from "../src/connectors/survey.ts";
 import { Budget } from "../src/agents/budget.ts";
 import { decideGuard } from "../src/guard.ts";
@@ -113,9 +113,9 @@ test("recon never marks a target disposable, whatever the safety agent says", as
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": {
+      "scout-boot": BOOT_OK,
+      "scout-auth": AUTH_NONE,
+      "scout-safety": {
         forbiddenHosts: [],
         disposableRecommendation: true,
         reasoning: "Everything is local and clearly a scratch environment.",
@@ -147,9 +147,9 @@ test("a human's existing disposable setting survives a re-recon", async () => {
     projectRoot: root,
     existing,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": BOOT_OK,
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -170,10 +170,10 @@ test("remote hosts found in files are denied even when the safety agent found no
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": AUTH_NONE,
+      "scout-boot": BOOT_OK,
+      "scout-auth": AUTH_NONE,
       // The agent says nothing is dangerous. Code disagrees, and code wins.
-      "pathfinder-safety": { forbiddenHosts: [] },
+      "scout-safety": { forbiddenHosts: [] },
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -192,8 +192,8 @@ test("the deny-list is still written when the safety agent fails outright", asyn
     projectRoot: root,
     runner: {
       async invoke({ definition }) {
-        if (definition.role === "pathfinder-safety") throw new Error("upstream 529");
-        const reply = definition.role === "pathfinder-boot" ? BOOT_OK : AUTH_NONE;
+        if (definition.role === "scout-safety") throw new Error("upstream 529");
+        const reply = definition.role === "scout-boot" ? BOOT_OK : AUTH_NONE;
         return {
           text: JSON.stringify(reply),
           model: definition.model,
@@ -220,8 +220,8 @@ test("a fabricated credential is dropped, a real one is kept", async () => {
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": {
+      "scout-boot": BOOT_OK,
+      "scout-auth": {
         mode: "cookie-session",
         loginUrl: "/login",
         roles: [
@@ -230,7 +230,7 @@ test("a fabricated credential is dropped, a real one is kept", async () => {
           { key: "editor", username: "editor@demo.test", password: "Editor123!", sourceFile: "seed.md" },
         ],
       },
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -246,9 +246,9 @@ test("an unknown auth mode falls back to custom rather than being written throug
   const { profile } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": { mode: "saml-magic-link", roles: [] },
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": BOOT_OK,
+      "scout-auth": { mode: "saml-magic-link", roles: [] },
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -263,9 +263,9 @@ test("a boot command naming a script that does not exist becomes a blocker", asy
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": { cmd: "npm run start:dev", url: "http://localhost:3000" },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": { cmd: "npm run start:dev", url: "http://localhost:3000" },
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -290,9 +290,9 @@ test("a missing boot url is a blocker, not a silently empty profile", async () =
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": { blockers: ["No dev server is configured in this repository."] },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": { blockers: ["No dev server is configured in this repository."] },
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -325,9 +325,9 @@ test("a bare host is normalised to a URL rather than dropped", async () => {
   const { profile } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": { cmd: "npm run dev", url: "localhost:5173" },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": { cmd: "npm run dev", url: "localhost:5173" },
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -339,9 +339,9 @@ test("recon reports what it spent and which agents ran", async () => {
   const { report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": BOOT_OK,
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -350,7 +350,7 @@ test("recon reports what it spent and which agents ran", async () => {
   assert.ok(report.usdEstimate > 0);
   assert.deepEqual(
     report.agentRuns.map((r) => r.role),
-    ["pathfinder-boot", "pathfinder-auth", "pathfinder-safety"],
+    ["scout-boot", "scout-auth", "scout-safety"],
   );
 });
 
@@ -360,14 +360,14 @@ test("a note filed as a blocker does not stop a boot that was fully determined",
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": {
+      "scout-boot": {
         cmd: "npm run dev",
         url: "http://localhost:3000",
         // Agents use this field for observations however the prompt is worded.
         blockers: ["The .env.example references a shared analytics host."],
       },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -383,9 +383,9 @@ test("the same note IS a blocker when the boot proposal is incomplete", async ()
   const { report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": { blockers: ["No dev server is configured."] },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": { blockers: ["No dev server is configured."] },
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -399,9 +399,9 @@ test("an em-dash written by an agent never reaches the profile", async () => {
   const { profile } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": { mode: "none", roles: [], notes: "Vite dev server — no auth at all." },
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": BOOT_OK,
+      "scout-auth": { mode: "none", roles: [], notes: "Vite dev server — no auth at all." },
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -416,9 +416,9 @@ test("a readyCheck written as prose is refused, and a path is resolved against t
     projectRoot: root,
     runner: scriptedRunner({
       // bootAndVerify fetches this string verbatim.
-      "pathfinder-boot": { ...BOOT_OK, readyCheck: "GET /health -> 200" },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": { ...BOOT_OK, readyCheck: "GET /health -> 200" },
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -428,9 +428,9 @@ test("a readyCheck written as prose is refused, and a path is resolved against t
   const relative = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": { ...BOOT_OK, readyCheck: "/health" },
-      "pathfinder-auth": AUTH_NONE,
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-boot": { ...BOOT_OK, readyCheck: "/health" },
+      "scout-auth": AUTH_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -446,12 +446,12 @@ test("a role with no key is named from something meaningful, not its position", 
   const { profile } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": BOOT_OK,
-      "pathfinder-auth": {
+      "scout-boot": BOOT_OK,
+      "scout-auth": {
         mode: "cookie-session",
         roles: [{ username: "ada@demo.test", password: "demo-admin-pass", label: "Site Admin" }],
       },
-      "pathfinder-safety": SAFETY_NONE,
+      "scout-safety": SAFETY_NONE,
     }),
     budget: new Budget({ maxUsd: 1 }),
   });
@@ -467,21 +467,21 @@ test("fields that arrive with the wrong type are ignored, not crashed on", async
   const { profile, report } = await runRecon({
     projectRoot: root,
     runner: scriptedRunner({
-      "pathfinder-boot": {
+      "scout-boot": {
         cmd: "npm run dev",
         url: "http://localhost:3000",
         readyCheck: { url: "/health", expect: 200 },
         cwd: 42,
         blockers: [null, "", { note: "nope" }],
       },
-      "pathfinder-auth": {
+      "scout-auth": {
         mode: "cookie-session",
         loginUrl: ["/login"],
         apiLogin: "POST /api/login",
         notes: { text: "hi" },
         roles: [{ key: 7, username: null, password: undefined }],
       },
-      "pathfinder-safety": { forbiddenHosts: [null, 12, "  ", "shared.example"] },
+      "scout-safety": { forbiddenHosts: [null, 12, "  ", "shared.example"] },
     }),
     budget: new Budget({ maxUsd: 1 }),
   });

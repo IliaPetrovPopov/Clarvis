@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runDossier, gatherSources } from "../src/agents/dossier.ts";
+import { runDossier, gatherSources } from "../src/agents/archive.ts";
 import { Budget } from "../src/agents/budget.ts";
 import { oracleCeiling } from "../src/context.ts";
 import type { AgentRunner, RawAgentResponse } from "../src/agents/runtime.ts";
@@ -77,7 +77,7 @@ test("a sourced, entailed requirement becomes a usable oracle", async () => {
   const dir = await project();
   try {
     const runner = roleRunner({
-      "dossier-extract": JSON.stringify({
+      "archive-extract": JSON.stringify({
         requirements: [
           {
             id: "r1",
@@ -89,7 +89,7 @@ test("a sourced, entailed requirement becomes a usable oracle", async () => {
         ],
         unknowns: [],
       }),
-      "dossier-entail": JSON.stringify({ entailed: true, confidence: "explicit", reason: "stated outright" }),
+      "archive-entail": JSON.stringify({ entailed: true, confidence: "explicit", reason: "stated outright" }),
     });
 
     const { context, report } = await runDossier({
@@ -112,7 +112,7 @@ test("a fabricated quote never reaches the context, and is recorded as a gap", a
   const dir = await project();
   try {
     const runner = roleRunner({
-      "dossier-extract": JSON.stringify({
+      "archive-extract": JSON.stringify({
         requirements: [
           {
             id: "r1",
@@ -124,7 +124,7 @@ test("a fabricated quote never reaches the context, and is recorded as a gap", a
         ],
         unknowns: [],
       }),
-      "dossier-entail": JSON.stringify({ entailed: true, confidence: "explicit", reason: "n/a" }),
+      "archive-entail": JSON.stringify({ entailed: true, confidence: "explicit", reason: "n/a" }),
     });
 
     const { context, report } = await runDossier({
@@ -149,7 +149,7 @@ test("a real quote that does not entail the claim is demoted, not accepted", asy
   const dir = await project();
   try {
     const runner = roleRunner({
-      "dossier-extract": JSON.stringify({
+      "archive-extract": JSON.stringify({
         requirements: [
           {
             id: "r1",
@@ -162,7 +162,7 @@ test("a real quote that does not entail the claim is demoted, not accepted", asy
         ],
         unknowns: [],
       }),
-      "dossier-entail": JSON.stringify({
+      "archive-entail": JSON.stringify({
         entailed: false,
         confidence: "implied",
         reason: "the quote says nothing about status codes",
@@ -191,9 +191,9 @@ test("the entailment verifier is shown only the quote and the statement", async 
   try {
     const runner: AgentRunner = {
       async invoke(req) {
-        if (req.definition.role === "dossier-entail") prompts.push(req.prompt);
+        if (req.definition.role === "archive-entail") prompts.push(req.prompt);
         const text =
-          req.definition.role === "dossier-extract"
+          req.definition.role === "archive-extract"
             ? JSON.stringify({
                 requirements: [
                   { id: "r1", statement: "A Proctor cannot view users.", quote: REAL_QUOTE, sourceIds: ["s1"], confidence: "explicit" },
@@ -221,7 +221,7 @@ test("the entailment verifier is shown only the quote and the statement", async 
 test("a failed extraction produces no requirements and says so loudly", async () => {
   const dir = await project();
   try {
-    const runner = roleRunner({ "dossier-extract": "not json at all" });
+    const runner = roleRunner({ "archive-extract": "not json at all" });
     const { context, report } = await runDossier({
       projectRoot: dir,
       scope,
@@ -241,14 +241,14 @@ test("an unverifiable entailment fails closed", async () => {
   const dir = await project();
   try {
     const runner = roleRunner({
-      "dossier-extract": JSON.stringify({
+      "archive-extract": JSON.stringify({
         requirements: [
           { id: "r1", statement: "A Proctor cannot view users.", quote: REAL_QUOTE, sourceIds: ["s1"], confidence: "explicit" },
         ],
         unknowns: [],
       }),
       // The verifier itself breaks.
-      "dossier-entail": "garbage",
+      "archive-entail": "garbage",
     });
 
     const { context, report } = await runDossier({
@@ -288,7 +288,7 @@ test("no sources means an explicit unknown, never a confident empty context", as
 test("an exhausted budget stops the pipeline without inventing a result", async () => {
   const dir = await project();
   try {
-    const runner = roleRunner({ "dossier-extract": "{}" });
+    const runner = roleRunner({ "archive-extract": "{}" });
     const { context, report } = await runDossier({
       projectRoot: dir,
       scope,

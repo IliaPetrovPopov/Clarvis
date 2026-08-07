@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { authorSpecs, planAxes } from "../src/agents/crucible.ts";
+import { authorSpecs, planAxes } from "../src/agents/prover.ts";
 import { Budget } from "../src/agents/budget.ts";
 import type { AgentRunner } from "../src/agents/runtime.ts";
 import type { Profile } from "../src/types.ts";

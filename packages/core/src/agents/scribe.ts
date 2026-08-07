@@ -6,7 +6,7 @@ import { getAgent } from "./definitions.ts";
 import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
 
 /**
- * DISPATCH: turn confirmed findings into tickets a human would have written.
+ * SCRIBE: turn confirmed findings into tickets a human would have written.
  *
  * Drafting and filing are deliberately separate steps, and nothing here files
  * anything. A wrong ticket on someone's board is worse than no ticket: it costs
@@ -156,7 +156,7 @@ export async function draftTickets(
   for (const finding of candidates) {
     const result = await runAgent<DraftProposal>({
       runner: opts.runner,
-      definition: getAgent("dispatch-draft"),
+      definition: getAgent("scribe-draft"),
       prompt: [
         `SEVERITY: ${finding.severity}`,
         `AXIS: ${finding.axis}`,
@@ -179,7 +179,7 @@ export async function draftTickets(
         .join("\n"),
       validate: validateDraft,
       budget: opts.budget,
-      agentId: `dispatch-draft-${finding.id}`,
+      agentId: `scribe-draft-${finding.id}`,
       transcriptDir: opts.transcriptDir,
       redact: opts.redact,
     });

@@ -33,7 +33,7 @@ test("CONFIRMED needs all three: deterministic, product fault, and a cited sourc
 });
 
 test("a finding whose only basis is code intent can never be confirmed", () => {
-  // This is what makes DOSSIER load-bearing rather than optional: without a
+  // This is what makes ARCHIVE load-bearing rather than optional: without a
   // human-authored source, nothing is ever publishable.
   const decided = decideTier({
     verdict: "deterministic",

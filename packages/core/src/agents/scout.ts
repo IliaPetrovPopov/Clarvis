@@ -9,9 +9,9 @@ import { getAgent } from "./definitions.ts";
 import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
 
 /**
- * PATHFINDER: work out what this project is, before anything touches it.
+ * SCOUT: work out what this project is, before anything touches it.
  *
- * Same shape as DOSSIER, for the same reason - the model is bracketed by code:
+ * Same shape as ARCHIVE, for the same reason - the model is bracketed by code:
  *
  *   survey (code) -> propose (agents) -> validate (code) -> assemble (code)
  *
@@ -275,14 +275,14 @@ export async function runRecon(opts: ReconOptions): Promise<{ profile: Profile; 
   // Sequential rather than parallel: these share one budget, and a budget
   // checked concurrently can be overspent by whichever calls land together.
   const bootResult = await ask<BootProposal>(
-    "pathfinder-boot",
+    "scout-boot",
     "Work out how to start this project and what URL it serves. Return JSON with " +
       "cmd, cwd, url, readyCheck, evidence, and blockers[] for anything you cannot determine.",
     validateBoot,
   );
 
   const authResult = await ask<AuthProposal>(
-    "pathfinder-auth",
+    "scout-auth",
     "Identify how this application authenticates. Return JSON with mode, loginUrl, apiLogin, " +
       "roles[] and notes. For every credential, set sourceFile to the file it appears in - " +
       "credentials are checked against that file and dropped if they are not there.",
@@ -290,7 +290,7 @@ export async function runRecon(opts: ReconOptions): Promise<{ profile: Profile; 
   );
 
   const safetyResult = await ask<SafetyProposal>(
-    "pathfinder-safety",
+    "scout-safety",
     `Classify every host this project can reach. Hosts found in the files by static scan:\n` +
       survey.hosts.map((h) => `  ${h.host}  (${h.ref})`).join("\n") +
       `\n\nReturn JSON with forbiddenHosts[] (glob patterns), findings[] and reasoning.`,
@@ -388,7 +388,7 @@ export async function runRecon(opts: ReconOptions): Promise<{ profile: Profile; 
       continue;
     }
 
-    // Same principle as quote verification in DOSSIER: asking an agent for a
+    // Same principle as quote verification in ARCHIVE: asking an agent for a
     // source only gets a source-shaped string back, and checking it is what
     // makes fabrication detectable. The search covers the whole project because
     // that is what the agent could read - verifying against the narrower survey

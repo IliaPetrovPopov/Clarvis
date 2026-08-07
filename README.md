@@ -29,12 +29,12 @@ its own work.
 
 | Codename | Key | Produces | |
 |---|---|---|---|
-| **PATHFINDER** | `recon` | `profile.json` | mandatory |
-| **DOSSIER** | `research` | `context.json` | optional |
-| **VECTOR** | `lead` | `plan.json` | optional |
-| **CRUCIBLE** | `qa` | `run.json` | optional |
-| **DISPATCH** | `delivery` | `drafts.json` | optional |
-| **CLEARANCE** | `release` | `verdict.json` | optional |
+| **SCOUT** | `recon` | `profile.json` | mandatory |
+| **ARCHIVE** | `research` | `context.json` | optional |
+| **FOREMAN** | `lead` | `plan.json` | optional |
+| **PROVER** | `qa` | `run.json` | optional |
+| **SCRIBE** | `delivery` | `drafts.json` | optional |
+| **JUDGE** | `release` | `verdict.json` | optional |
 
 You pick the teams per project, once, from the terminal:
 
@@ -43,14 +43,14 @@ cd ~/code/my-app
 clarvis init
 ```
 
-That is an interactive checklist. PATHFINDER is always in; everything else is a
+That is an interactive checklist. SCOUT is always in; everything else is a
 choice, and turning one on pulls in what it reads from. Pass `--fleet` to skip
 the prompt and script it.
 
 Fleets you leave out are not silently absent. Every run prints what it lost:
 
 ```
-DEGRADED CRUCIBLE without DOSSIER (high): No finding can cite a spec or
+DEGRADED PROVER without ARCHIVE (high): No finding can cite a spec or
          acceptance criteria, because nothing gathered them.
 ```
 
@@ -81,9 +81,9 @@ If `graphify` is installed, `clarvis init` offers to build a code graph for the
 project. It is local AST parsing - no model call, no usage against your plan -
 and it feeds two things nothing else can supply:
 
-- **PATHFINDER** fills `risk.hotspots` from the graph's most-connected nodes:
+- **SCOUT** fills `risk.hotspots` from the graph's most-connected nodes:
   the places where a change reaches furthest.
-- **VECTOR** gets the blast radius of the changed files. Filenames say what was
+- **FOREMAN** gets the blast radius of the changed files. Filenames say what was
   edited; the graph says what depends on it, and "this file is imported by the
   auth middleware" is the signal that moves rbac to the top.
 
@@ -172,7 +172,7 @@ honest; a green axis that asserted nothing is not.
 
 ## What a full run does
 
-1. **VECTOR** ranks the axes worth running for this change, and says what
+1. **FOREMAN** ranks the axes worth running for this change, and says what
    deferring the rest costs. It can reorder and explain; it cannot invent a
    route, resurrect an axis the guard refused, or drop one silently - anything
    it does not plan is listed as deferred, with the cost stated.
@@ -196,15 +196,15 @@ honest; a green axis that asserted nothing is not.
    database that command would write to is checked separately from the HTTP
    target, because a seed script reads a connection string the guard has never
    seen - and a local app with a shared remote database passes every other check.
-5. **CRUCIBLE** authors one spec per axis in parallel, against snapshots of the
+5. **PROVER** authors one spec per axis in parallel, against snapshots of the
    real pages rather than source it has to interpret. Each is gated, run, and
    every failure re-run three times in isolation with the fault attributed.
-6. **DISPATCH** drafts a ticket for each confirmed finding. It never files
+6. **SCRIBE** drafts a ticket for each confirmed finding. It never files
    anything: `decidePublish` refuses unless writes are explicitly enabled, the
    finding is CONFIRMED, a human approved that specific ticket, no duplicate is
    suspected, the project is allow-listed and the per-run cap has room. Refused
    drafts are still written to disk to be read and filed by hand.
-7. **CLEARANCE** decides ship or hold. The verdict is `decideRelease` - plain
+7. **JUDGE** decides ship or hold. The verdict is `decideRelease` - plain
    code, not a model, because nobody should be told "ship it" by something that
    might be having an off day. The agent only writes the notes and states the
    limits, and is given the verdict rather than asked for one.
@@ -286,7 +286,7 @@ A red test is evidence, not a verdict. `CONFIRMED` needs all three:
 3. something written by a human says the behaviour is wrong.
 
 Miss any one and it stays `PLAUSIBLE`. Only `CONFIRMED` findings can ever be
-published to a tracker. This is what makes DOSSIER load-bearing rather than
+published to a tracker. This is what makes ARCHIVE load-bearing rather than
 optional: with no human-authored source, nothing is publishable.
 
 Tier and severity stay separate in the UI. Tier (confidence) drives prominence;
@@ -341,7 +341,7 @@ saying "fix" is a claim by its author, not a verified defect.
 - `variance` repeats the same input and reports the spread. The planner defers
   an axis in one run and plans it in the next, so coverage is a random variable
   and every detection number inherits that.
-- `ablation` compares runs with a fleet removed, so "DOSSIER helps" becomes a
+- `ablation` compares runs with a fleet removed, so "ARCHIVE helps" becomes a
   number rather than an assertion. Arms with fewer than 3 runs are flagged as
   indistinguishable from noise.
 - `calibration` scores triage against human labels, and separates the two

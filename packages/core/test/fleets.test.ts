@@ -34,14 +34,24 @@ test("every optional fleet can actually be turned off", () => {
 });
 
 test("codenames and keys both resolve", () => {
-  assert.equal(toFleetKey("CRUCIBLE"), "qa");
-  assert.equal(toFleetKey("crucible"), "qa");
+  assert.equal(toFleetKey("PROVER"), "qa");
+  assert.equal(toFleetKey("prover"), "qa");
   assert.equal(toFleetKey("qa"), "qa");
-  assert.equal(toFleetKey("Pathfinder"), "recon");
+  assert.equal(toFleetKey("Scout"), "recon");
   assert.equal(toFleetKey("nonsense"), undefined);
 
-  const r = resolveFleets({ requested: ["clearance"] });
+  const r = resolveFleets({ requested: ["judge"] });
   assert.deepEqual(r.order, ["recon", "qa", "release"]);
+});
+
+test("a retired codename is not quietly still accepted", () => {
+  // The teams were renamed because six names that all sounded like movement
+  // were impossible to keep straight. Leaving the old ones working would mean
+  // two names per team, which is the same problem with an extra step - and a
+  // script using one would keep printing a word the dashboard no longer shows.
+  for (const retired of ["crucible", "pathfinder", "dossier", "vector", "dispatch", "clearance"]) {
+    assert.equal(toFleetKey(retired), undefined, `${retired} should no longer resolve`);
+  }
 });
 
 test("an unknown fleet is an error, not a silent drop", () => {
@@ -79,8 +89,8 @@ test("a full run has no degradations", () => {
 
 test("the summary names fleets by codename and shouts about degradation", () => {
   const lines = describeResolution(resolveFleets({ requested: ["qa"] })).join("\n");
-  assert.match(lines, /PATHFINDER -> CRUCIBLE/);
-  assert.match(lines, /DEGRADED CRUCIBLE without DOSSIER/);
+  assert.match(lines, /SCOUT -> PROVER/);
+  assert.match(lines, /DEGRADED PROVER without ARCHIVE/);
 });
 
 /* -------------------------------------------------------------- release */

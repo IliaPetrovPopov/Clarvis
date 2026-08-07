@@ -6,7 +6,7 @@ import path from "node:path";
  * Code-graph connector, built on the local `graphify` binary.
  *
  * This answers a question nothing else in Clarvis can: what else does a change
- * reach? VECTOR ranks axes from filenames and keywords, which tells it what was
+ * reach? FOREMAN ranks axes from filenames and keywords, which tells it what was
  * edited but not what depends on it - and "this file is imported by the auth
  * middleware" is exactly the signal that should move rbac to the top.
  *

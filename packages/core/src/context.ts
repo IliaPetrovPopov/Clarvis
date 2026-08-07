@@ -313,7 +313,7 @@ export function buildContext(input: {
 }
 
 /**
- * The oracle strength a context can support. CRUCIBLE reads this to know
+ * The oracle strength a context can support. PROVER reads this to know
  * whether a clean result means anything: a context with no explicit
  * requirements cannot produce a CONFIRMED finding against acceptance criteria,
  * however green the run looks.

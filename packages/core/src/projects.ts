@@ -26,7 +26,7 @@ export interface ProjectEntry {
    * Which teams run for this project by default.
    *
    * Per-project rather than global: a repo with no tracker has no use for
-   * DISPATCH, and a repo with no written specs gets nothing from DOSSIER but
+   * SCRIBE, and a repo with no written specs gets nothing from ARCHIVE but
    * the cost. Absent means the legacy default, so existing entries keep
    * behaving as they did.
    */

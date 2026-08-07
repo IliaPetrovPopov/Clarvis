@@ -171,8 +171,8 @@ export async function serveUi(
             GET /api/projects/:id/artifact/:name
 
             Everything a run produces that is not run.json. Four of the six
-            teams wrote their output to a file nothing served, so DISPATCH's
-            tickets and CLEARANCE's verdict - two whole fleets - could not be
+            teams wrote their output to a file nothing served, so SCRIBE's
+            tickets and JUDGE's verdict - two whole fleets - could not be
             read anywhere but the terminal. The others hold what a reader needs
             to judge a result at all: the requirements a finding cites, the plan
             that says what was deliberately not tested, and the route map that

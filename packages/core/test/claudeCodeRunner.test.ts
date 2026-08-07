@@ -40,14 +40,14 @@ const OK = {
 
 test("the allow-list is built from the definition, never from anywhere else", () => {
   const runner = new ClaudeCodeRunner();
-  assert.deepEqual(runner.allowedTools(getAgent("pathfinder-boot")), ["Read", "Grep", "Glob"]);
-  assert.deepEqual(runner.allowedTools(getAgent("crucible-author")), ["Read", "Grep", "Glob"]);
+  assert.deepEqual(runner.allowedTools(getAgent("scout-boot")), ["Read", "Grep", "Glob"]);
+  assert.deepEqual(runner.allowedTools(getAgent("prover-author")), ["Read", "Grep", "Glob"]);
 });
 
 test("bash, web access and subagents are explicitly denied on every invocation", async () => {
   const { exec, calls } = fakeExec(OK);
   await new ClaudeCodeRunner({ exec }).invoke({
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: "find the boot command",
     attempt: 1,
   });
@@ -78,7 +78,7 @@ test("a tool-less role runs here with nothing granted", async () => {
   // which is what lets any finding reach CONFIRMED.
   const { exec, calls } = fakeExec(OK);
   await new ClaudeCodeRunner({ exec }).invoke({
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "x",
     attempt: 1,
   });
@@ -93,15 +93,15 @@ test("selectRunner sends each role to the cheapest runner that can honour it", (
   const messages = { invoke: async () => ({}) } as unknown as AgentRunner;
   const tools = { invoke: async () => ({}) } as unknown as AgentRunner;
 
-  assert.equal(selectRunner(getAgent("dossier-extract"), { messages, tools }), messages);
-  assert.equal(selectRunner(getAgent("pathfinder-boot"), { messages, tools }), tools);
+  assert.equal(selectRunner(getAgent("archive-extract"), { messages, tools }), messages);
+  assert.equal(selectRunner(getAgent("scout-boot"), { messages, tools }), tools);
 
   // With no API key there is no messages runner, and a tool-less role still has
   // to run - so it falls back rather than failing.
-  assert.equal(selectRunner(getAgent("dossier-extract"), { tools }), tools);
+  assert.equal(selectRunner(getAgent("archive-extract"), { tools }), tools);
 
   // A role that needs tools has no fallback.
-  assert.throws(() => selectRunner(getAgent("pathfinder-boot"), { messages }), /No runner available/);
+  assert.throws(() => selectRunner(getAgent("scout-boot"), { messages }), /No runner available/);
 });
 
 /* ------------------------------------------------------------ invocation */
@@ -123,7 +123,7 @@ test("the prompt is written to the child's stdin for real, not merely passed as 
   };
 
   const res = await new ClaudeCodeRunner({ binary: process.execPath, exec: echo }).invoke({
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: "the actual task text",
     attempt: 1,
   });
@@ -136,7 +136,7 @@ test("the prompt goes on stdin, never into argv", async () => {
   const big = "x".repeat(200_000);
 
   await new ClaudeCodeRunner({ exec }).invoke({
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: big,
     attempt: 1,
   });
@@ -149,7 +149,7 @@ test("the prompt goes on stdin, never into argv", async () => {
 test("read directories are passed through so the agent can see the project", async () => {
   const { exec, calls } = fakeExec(OK);
   await new ClaudeCodeRunner({ exec, addDirs: ["/tmp/project"] }).invoke({
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: "go",
     attempt: 1,
   });
@@ -160,7 +160,7 @@ test("read directories are passed through so the agent can see the project", asy
 test("a retry states the rejection before the task", async () => {
   const { exec, calls } = fakeExec(OK);
   await new ClaudeCodeRunner({ exec }).invoke({
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: "the task",
     previousError: "boot.url was missing",
     attempt: 2,
@@ -175,7 +175,7 @@ test("a retry states the rejection before the task", async () => {
 test("reported cost is carried through rather than re-estimated", async () => {
   const { exec } = fakeExec(OK);
   const res = await new ClaudeCodeRunner({ exec }).invoke({
-    definition: getAgent("pathfinder-boot"),
+    definition: getAgent("scout-boot"),
     prompt: "go",
     attempt: 1,
   });
@@ -194,7 +194,7 @@ test("a denied permission is surfaced, not treated as a thinner answer", async (
   await assert.rejects(
     () =>
       new ClaudeCodeRunner({ exec }).invoke({
-        definition: getAgent("pathfinder-boot"),
+        definition: getAgent("scout-boot"),
         prompt: "go",
         attempt: 1,
       }),
@@ -205,7 +205,7 @@ test("a denied permission is surfaced, not treated as a thinner answer", async (
 test("an error envelope is an error, not an empty result", async () => {
   const { exec } = fakeExec({ is_error: true, subtype: "max_turns", result: "" });
   await assert.rejects(
-    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("pathfinder-boot"), prompt: "go", attempt: 1 }),
+    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("scout-boot"), prompt: "go", attempt: 1 }),
     /claude reported an error \(max_turns\)/,
   );
 });
@@ -213,7 +213,7 @@ test("an error envelope is an error, not an empty result", async () => {
 test("non-json output is reported with the exit code and stderr that explain it", async () => {
   const exec: ExecFn = async () => ({ stdout: "", stderr: "Invalid option: --nope", code: 2 });
   await assert.rejects(
-    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("pathfinder-boot"), prompt: "go", attempt: 1 }),
+    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("scout-boot"), prompt: "go", attempt: 1 }),
     // Without these the caller sees a parse error and no cause, which is what
     // made the first live recon failure unreadable.
     /exit 2 \| Invalid option: --nope/,
@@ -223,7 +223,7 @@ test("non-json output is reported with the exit code and stderr that explain it"
 test("a silent empty result is still an error, not an empty success", async () => {
   const exec: ExecFn = async () => ({ stdout: "", stderr: "", code: 0 });
   await assert.rejects(
-    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("pathfinder-boot"), prompt: "go", attempt: 1 }),
+    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("scout-boot"), prompt: "go", attempt: 1 }),
     /no output/,
   );
 });
@@ -231,7 +231,7 @@ test("a silent empty result is still an error, not an empty success", async () =
 test("a missing binary explains the alternative", async () => {
   const { exec } = fakeExec(new Error("spawn claude ENOENT"));
   await assert.rejects(
-    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("pathfinder-boot"), prompt: "go", attempt: 1 }),
+    () => new ClaudeCodeRunner({ exec }).invoke({ definition: getAgent("scout-boot"), prompt: "go", attempt: 1 }),
     /Install Claude Code, or use MessagesRunner/,
   );
 });
@@ -250,7 +250,7 @@ test("running out of turns reports what it cost, not zero", async () => {
   await assert.rejects(
     () =>
       new ClaudeCodeRunner({ exec }).invoke({
-        definition: getAgent("pathfinder-boot"),
+        definition: getAgent("scout-boot"),
         prompt: "go",
         attempt: 1,
       }),
@@ -279,8 +279,8 @@ test("a role with a schema is given it in the prompt", async () => {
   const { exec, calls } = fakeExec(OK);
   await new ClaudeCodeRunner({
     exec,
-    schemas: { "pathfinder-boot": { type: "object", required: ["url"] } },
-  }).invoke({ definition: getAgent("pathfinder-boot"), prompt: "go", attempt: 1 });
+    schemas: { "scout-boot": { type: "object", required: ["url"] } },
+  }).invoke({ definition: getAgent("scout-boot"), prompt: "go", attempt: 1 });
 
   const input = String(calls[0].opts.input);
   assert.match(input, /Return ONLY a JSON object matching this schema/);

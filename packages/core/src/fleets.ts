@@ -44,7 +44,7 @@ export interface FleetSpec {
 export const FLEETS: Record<FleetKey, FleetSpec> = {
   recon: {
     key: "recon",
-    codename: "PATHFINDER",
+    codename: "SCOUT",
     title: "Recon",
     purpose:
       "Walks the project: boots it for real, logs in as each role, maps routes, detects the stack, ranks risk.",
@@ -56,7 +56,7 @@ export const FLEETS: Record<FleetKey, FleetSpec> = {
   },
   research: {
     key: "research",
-    codename: "DOSSIER",
+    codename: "ARCHIVE",
     title: "Research",
     purpose:
       "Learns what the feature is supposed to do, from tickets, docs and history. Produces the oracles.",
@@ -68,7 +68,7 @@ export const FLEETS: Record<FleetKey, FleetSpec> = {
   },
   lead: {
     key: "lead",
-    codename: "VECTOR",
+    codename: "FOREMAN",
     title: "Lead",
     purpose: "Decides what to test: which axes, which routes, against which oracles.",
     mandatory: false,
@@ -79,7 +79,7 @@ export const FLEETS: Record<FleetKey, FleetSpec> = {
   },
   qa: {
     key: "qa",
-    codename: "CRUCIBLE",
+    codename: "PROVER",
     title: "QA",
     purpose: "Drives real browsers across the test axes, then triages what it finds.",
     mandatory: false,
@@ -90,7 +90,7 @@ export const FLEETS: Record<FleetKey, FleetSpec> = {
   },
   delivery: {
     key: "delivery",
-    codename: "DISPATCH",
+    codename: "SCRIBE",
     title: "Delivery",
     purpose: "Turns confirmed findings into tracker drafts. Never files without approval.",
     mandatory: false,
@@ -101,7 +101,7 @@ export const FLEETS: Record<FleetKey, FleetSpec> = {
   },
   release: {
     key: "release",
-    codename: "CLEARANCE",
+    codename: "JUDGE",
     title: "Release",
     purpose:
       "Ship-readiness verdict and draft release notes, from what the run actually proved. Recommends; it does not deploy.",

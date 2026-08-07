@@ -5,10 +5,10 @@ import type { AgentRunner, RawAgentResponse } from "./runtime.ts";
 /**
  * Concrete runner for agents that need no tools.
  *
- * Every DOSSIER agent reasons purely over text a connector already retrieved,
+ * Every ARCHIVE agent reasons purely over text a connector already retrieved,
  * so the agentic loop buys nothing: a single Messages call is simpler, cheaper,
  * and has no surface through which an agent could reach anything. Tool-using
- * roles (PATHFINDER, CRUCIBLE) will need a separate runner built on the Agent
+ * roles (SCOUT, PROVER) will need a separate runner built on the Agent
  * SDK; this one deliberately refuses them rather than silently dropping their
  * tools and producing a confidently useless answer.
  *
@@ -126,8 +126,8 @@ export class MessagesRunner implements AgentRunner {
  * agent definitions because they describe the wire contract, not the agent's
  * job, and because structured output is a property of how it is invoked.
  */
-export const DOSSIER_SCHEMAS: Record<string, Record<string, unknown>> = {
-  "dossier-extract": {
+export const ARCHIVE_SCHEMAS: Record<string, Record<string, unknown>> = {
+  "archive-extract": {
     type: "object",
     additionalProperties: false,
     required: ["requirements", "unknowns"],
@@ -165,7 +165,7 @@ export const DOSSIER_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "dossier-entail": {
+  "archive-entail": {
     type: "object",
     additionalProperties: false,
     required: ["entailed", "confidence", "reason"],
@@ -176,7 +176,7 @@ export const DOSSIER_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "dossier-synthesis": {
+  "archive-synthesis": {
     type: "object",
     additionalProperties: false,
     required: ["summary", "unknowns"],
@@ -209,9 +209,9 @@ export const DOSSIER_SCHEMAS: Record<string, Record<string, unknown>> = {
  * retries converging on the right one.
  */
 export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
-  ...DOSSIER_SCHEMAS,
+  ...ARCHIVE_SCHEMAS,
 
-  "pathfinder-boot": {
+  "scout-boot": {
     type: "object",
     required: ["url"],
     properties: {
@@ -229,7 +229,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "pathfinder-auth": {
+  "scout-auth": {
     type: "object",
     required: ["mode", "roles"],
     properties: {
@@ -270,7 +270,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "pathfinder-safety": {
+  "scout-safety": {
     type: "object",
     required: ["forbiddenHosts"],
     properties: {
@@ -291,7 +291,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "pathfinder-taxonomy": {
+  "scout-taxonomy": {
     type: "object",
     required: ["axes"],
     properties: {
@@ -319,7 +319,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "vector-plan": {
+  "foreman-plan": {
     type: "object",
     required: ["axes", "deferred", "rationale"],
     properties: {
@@ -353,7 +353,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "crucible-author": {
+  "prover-author": {
     type: "object",
     required: ["source", "covers", "untested"],
     properties: {
@@ -370,7 +370,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "crucible-triage": {
+  "prover-triage": {
     type: "object",
     required: ["fault", "reason"],
     properties: {
@@ -381,7 +381,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "dispatch-draft": {
+  "scribe-draft": {
     type: "object",
     required: ["title", "body", "steps"],
     properties: {
@@ -392,7 +392,7 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
-  "clearance-notes": {
+  "judge-notes": {
     type: "object",
     required: ["summary", "limits"],
     properties: {

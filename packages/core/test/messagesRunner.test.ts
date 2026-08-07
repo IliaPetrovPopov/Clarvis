@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MessagesRunner, DOSSIER_SCHEMAS } from "../src/agents/messagesRunner.ts";
+import { MessagesRunner, ARCHIVE_SCHEMAS } from "../src/agents/messagesRunner.ts";
 import { getAgent } from "../src/agents/definitions.ts";
 
 type CreateParams = Record<string, unknown>;
@@ -28,11 +28,11 @@ test("a tool-using agent is refused rather than run without its tools", async ()
   const { client, calls } = fakeClient({});
   const runner = new MessagesRunner({ client });
 
-  assert.equal(runner.supports(getAgent("dossier-extract")), true);
-  assert.equal(runner.supports(getAgent("pathfinder-boot")), false);
+  assert.equal(runner.supports(getAgent("archive-extract")), true);
+  assert.equal(runner.supports(getAgent("scout-boot")), false);
 
   await assert.rejects(
-    () => runner.invoke({ definition: getAgent("pathfinder-boot"), prompt: "go", attempt: 1 }),
+    () => runner.invoke({ definition: getAgent("scout-boot"), prompt: "go", attempt: 1 }),
     /requires tools/,
   );
   assert.equal(calls.length, 0, "a runner that cannot honour the tools must not call the model at all");
@@ -42,9 +42,9 @@ test("the request carries the system prompt, adaptive thinking and the schema", 
   const { client, calls } = fakeClient({
     content: [{ type: "text", text: '{"requirements":[],"unknowns":[]}' }],
   });
-  const runner = new MessagesRunner({ client, schemas: DOSSIER_SCHEMAS });
+  const runner = new MessagesRunner({ client, schemas: ARCHIVE_SCHEMAS });
 
-  await runner.invoke({ definition: getAgent("dossier-extract"), prompt: "sources here", attempt: 1 });
+  await runner.invoke({ definition: getAgent("archive-extract"), prompt: "sources here", attempt: 1 });
 
   const params = calls[0] as {
     system: string;
@@ -67,7 +67,7 @@ test("a retry states the previous rejection before the task", async () => {
   const runner = new MessagesRunner({ client });
 
   await runner.invoke({
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "the task",
     previousError: "quote does not appear in s1",
     attempt: 2,
@@ -89,7 +89,7 @@ test("a safety refusal is an error, never an empty answer", async () => {
   const runner = new MessagesRunner({ client });
 
   await assert.rejects(
-    () => runner.invoke({ definition: getAgent("dossier-extract"), prompt: "go", attempt: 1 }),
+    () => runner.invoke({ definition: getAgent("archive-extract"), prompt: "go", attempt: 1 }),
     /declined this request \(cyber\)/,
   );
 });
@@ -106,7 +106,7 @@ test("cache tokens are carried through so cost is not understated", async () => 
   });
 
   const res = await new MessagesRunner({ client }).invoke({
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     attempt: 1,
   });
@@ -127,7 +127,7 @@ test("only text blocks are collected, so thinking never pollutes the payload", a
   });
 
   const res = await new MessagesRunner({ client }).invoke({
-    definition: getAgent("dossier-extract"),
+    definition: getAgent("archive-extract"),
     prompt: "go",
     attempt: 1,
   });
@@ -135,8 +135,8 @@ test("only text blocks are collected, so thinking never pollutes the payload", a
 });
 
 test("every tool-less role has a structured-output schema", () => {
-  for (const role of ["dossier-extract", "dossier-entail", "dossier-synthesis"]) {
-    const schema = DOSSIER_SCHEMAS[role];
+  for (const role of ["archive-extract", "archive-entail", "archive-synthesis"]) {
+    const schema = ARCHIVE_SCHEMAS[role];
     assert.ok(schema, `${role} needs a schema`);
     assert.equal(schema.type, "object");
     assert.equal(schema.additionalProperties, false, "extra fields must be rejected, not ignored");
@@ -145,7 +145,7 @@ test("every tool-less role has a structured-output schema", () => {
 });
 
 test("the entailment schema cannot express an opinion beyond the verdict", () => {
-  const schema = DOSSIER_SCHEMAS["dossier-entail"];
+  const schema = ARCHIVE_SCHEMAS["archive-entail"];
   assert.deepEqual((schema.required as string[]).sort(), ["confidence", "entailed", "reason"]);
   // No field through which the verifier could rewrite the statement it is judging.
   assert.deepEqual(Object.keys(schema.properties as object).sort(), ["confidence", "entailed", "reason"]);
