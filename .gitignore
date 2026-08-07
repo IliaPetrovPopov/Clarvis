@@ -26,3 +26,6 @@ credentials.json
 
 # stray shell debris
 $LOG
+
+# Built desktop app. Rebuilt from source by packages/desktop/build.sh.
+packages/desktop/build/

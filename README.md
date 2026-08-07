@@ -67,7 +67,7 @@ clarvis run                           # plan, author, gate, run, triage, draft, 
 clarvis smoke [--live]                # run the whole pipeline against the demo app and check it
 clarvis benchmark                     # score a run against a known set of seeded bugs
 clarvis guard                         # print the safety decision without running anything
-clarvis ui --open                     # the dashboard
+clarvis ui --open                     # the dashboard, in a browser
 ```
 
 Every command takes `--project <dir>`; without it they use the current
@@ -75,6 +75,27 @@ directory.
 
 Add `--dry-run` to `recon` or `research` to see exactly what would be sent to a
 model, at no cost.
+
+## As a desktop application
+
+```sh
+./packages/desktop/build.sh /Applications
+```
+
+A native window around the same dashboard. It uses WKWebView - the system
+webview - so nothing is bundled and the whole application is about 300KB;
+Electron would have been two hundred megabytes for a rendering engine already
+installed on the machine.
+
+It owns the server: on launch it starts `clarvis ui` if nothing is answering,
+and on quit it stops what it started. A server that was already running is left
+alone and left running, because it belongs to whoever started it - most likely
+a terminal being watched.
+
+Needs Xcode's command line tools, which is what supplies `swiftc`. The
+interpreter path is resolved at build time and baked into the bundle, because
+an app launched from the dock inherits almost no PATH and would not otherwise
+find a node managed by nvm. Rebuild after moving the repository.
 
 ## The code graph (optional)
 
