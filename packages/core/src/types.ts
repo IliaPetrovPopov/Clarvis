@@ -337,6 +337,17 @@ export interface Run {
     startedAt?: string;
     finishedAt?: string;
     status?: "ok" | "error" | "timeout";
+    /**
+     * What the invocation actually consumed.
+     *
+     * Persisted because it is the only honest unit of effort when Clarvis runs
+     * on a Claude plan, which is the normal case: there is no dollar charge to
+     * report, and a plan's usage is counted in tokens. The runtime layer had
+     * these all along and dropped them on the way to the record, leaving a
+     * price as the only thing anyone could be shown.
+     */
+    tokens?: { input: number; output: number };
+    /** Only meaningful when an API key is set. Otherwise nothing is billed. */
     usdEstimate?: number;
     transcriptPath?: string;
   }>;

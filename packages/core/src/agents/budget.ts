@@ -203,15 +203,36 @@ export function isBilledInDollars(env: NodeJS.ProcessEnv = process.env): boolean
   return Boolean(env.ANTHROPIC_API_KEY?.trim() || env.ANTHROPIC_AUTH_TOKEN?.trim());
 }
 
-export function spendLabel(usd: number, billed = isBilledInDollars()): string {
-  const amount = `$${usd.toFixed(4)}`;
-  return billed ? amount : `${amount} equivalent`;
+/**
+ * What a run consumed, in the unit that actually applies.
+ *
+ * Without an API key the work goes through a Claude plan: nothing reaches a
+ * card, and the plan counts tokens. Printing a price there is a conversion
+ * nobody asked for, and it invites budgeting against a number that will never
+ * appear on a statement - so tokens are the figure, and the dollar equivalent
+ * is not shown at all.
+ *
+ * Where a key IS set the money is real and it is the right thing to print.
+ */
+export function spendLabel(
+  usd: number,
+  billed = isBilledInDollars(),
+  tokens?: { input: number; output: number },
+): string {
+  if (billed) return `$${usd.toFixed(4)}`;
+
+  const total = (tokens?.input ?? 0) + (tokens?.output ?? 0);
+  if (!total) return "on your Claude plan";
+  return total >= 1_000_000
+    ? `${(total / 1_000_000).toFixed(1)}M tokens`
+    : total >= 1000
+      ? `${Math.round(total / 1000)}k tokens`
+      : `${total} tokens`;
 }
 
 /** One line explaining what the number means, printed once per run. */
 export function spendNote(billed = isBilledInDollars()): string {
   return billed
     ? "Billed to the configured API key."
-    : "No API key set, so this is charged to your Claude plan's usage, not to a card. " +
-      "The figure is what the same tokens would cost at API rates.";
+    : "Drawn from your Claude plan's usage. Nothing is billed to a card.";
 }

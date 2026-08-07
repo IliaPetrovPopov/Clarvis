@@ -8,6 +8,7 @@ import {
   FLEET_KEYS,
   addProject,
   clarvisPaths,
+  isBilledInDollars,
   describeProjects,
   listRunIds,
   readRun,
@@ -150,6 +151,15 @@ export async function serveUi(
           return json(res, 200, {
             api: API_CONTRACT,
             startedAt: STARTED_AT,
+            /*
+              Whether a dollar figure means anything here.
+
+              Without an API key the work goes through a Claude plan and
+              nothing is billed to a card, so a price is a conversion nobody
+              asked for. The page shows tokens instead - which is what a plan's
+              usage is actually counted in.
+            */
+            billed: isBilledInDollars(),
           });
         }
 

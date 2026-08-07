@@ -50,10 +50,15 @@ export default function App() {
   const [verdict, setVerdict] = useState<VerdictLike | undefined>();
   const [drafts, setDrafts] = useState<DraftsLike | undefined>();
   const [staleServer, setStaleServer] = useState(false);
+  // Whether a dollar figure means anything: only with an API key set.
+  const [billed, setBilled] = useState(false);
 
   /* Is the server behind this page older than the page? */
   useEffect(() => {
-    void checkServer().then((r) => setStaleServer(r.stale));
+    void checkServer().then((r) => {
+      setStaleServer(r.stale);
+      setBilled(r.billed);
+    });
   }, []);
 
   /* Projects, once. */
@@ -218,11 +223,11 @@ export default function App() {
 
     return (
       <>
-        <RunHeader run={latest} source={source === "fixture" ? "fixture" : "live"} />
+        <RunHeader run={latest} source={source === "fixture" ? "fixture" : "live"} billed={billed} />
         <AxisStrip run={latest} />
         {/* Before the findings: how far the run reached decides what an empty
             findings list is worth. */}
-        <Pipeline run={latest} />
+        <Pipeline run={latest} billed={billed} />
         <Findings run={latest} />
       </>
     );

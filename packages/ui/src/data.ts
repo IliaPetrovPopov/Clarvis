@@ -55,13 +55,49 @@ export const NEEDS_API = 2;
  * knows exists - invisible unless someone opens a console. Asking directly
  * turns that into something the page can say out loud.
  */
-export async function checkServer(): Promise<{ stale: boolean; serverApi?: number }> {
-  const health = await fetchJson<{ api?: number }>("/api/health");
+export async function checkServer(): Promise<{
+  stale: boolean;
+  serverApi?: number;
+  /** True only when an API key is set. Otherwise nothing is billed to a card. */
+  billed: boolean;
+}> {
+  const health = await fetchJson<{ api?: number; billed?: boolean }>("/api/health");
   // No health endpoint at all means a server older than the endpoint itself,
   // which is by definition stale. Except in the dev server, where there is no
   // API to be old - and `loadProjects` already tells those apart.
-  if (!health) return { stale: false };
-  return { stale: (health.api ?? 0) < NEEDS_API, serverApi: health.api };
+  if (!health) return { stale: false, billed: false };
+  return {
+    stale: (health.api ?? 0) < NEEDS_API,
+    serverApi: health.api,
+    billed: Boolean(health.billed),
+  };
+}
+
+/**
+ * Effort, in the unit that actually applies.
+ *
+ * A dollar figure is a conversion nobody asked for when the work runs through
+ * a Claude plan: there is no card, nothing is billed, and the plan counts
+ * tokens. Showing a price anyway invites the reader to budget against a number
+ * that will never appear on a statement. Where an API key IS set the money is
+ * real, and then it is the right thing to show.
+ */
+export function effortLabel(
+  agents: Array<{ tokens?: { input: number; output: number }; usdEstimate?: number }>,
+  billed: boolean,
+): string {
+  if (billed) {
+    const usd = agents.reduce((sum, a) => sum + (a.usdEstimate ?? 0), 0);
+    return usd > 0 ? `$${usd.toFixed(2)}` : "--";
+  }
+
+  const total = agents.reduce((sum, a) => sum + (a.tokens?.input ?? 0) + (a.tokens?.output ?? 0), 0);
+  if (!total) return "--";
+  return total >= 1_000_000
+    ? `${(total / 1_000_000).toFixed(1)}M`
+    : total >= 1000
+      ? `${Math.round(total / 1000)}k`
+      : String(total);
 }
 
 export async function loadProjects(): Promise<Project[]> {

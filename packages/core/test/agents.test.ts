@@ -326,19 +326,39 @@ test("a failed attempt that spent money is still charged to the budget", async (
   assert.equal(Number(result.usdEstimate.toFixed(4)), 0.42);
 });
 
-test("spend is labelled as an equivalent when there is no API key to bill", async () => {
-  // The CLI reports total_cost_usd whether or not a key is configured. With a
-  // subscription login there is no invoice, and printing a bare "$2.61" states
-  // a charge that is not happening.
+test("effort is reported in the unit that applies", async () => {
+  /*
+    The CLI reports total_cost_usd whether or not a key is configured, and with
+    a subscription login there is no invoice - so a bare "$2.61" states a charge
+    that is not happening.
+
+    Labelling it "equivalent" was the first fix and only half of one: it is
+    still a price, still the largest figure on the panel, and it still invites
+    budgeting against a number that will never appear on a statement. A plan
+    counts tokens, so on a plan the figure is tokens and the money is not shown
+    at all. Where a key is set the money is real and it is what to print.
+  */
   const { spendLabel, spendNote, isBilledInDollars } = await import("../src/agents/budget.ts");
 
   assert.equal(isBilledInDollars({ ANTHROPIC_API_KEY: "sk-ant-x" }), true);
   assert.equal(isBilledInDollars({ ANTHROPIC_API_KEY: "  " }), false);
   assert.equal(isBilledInDollars({}), false);
 
+  // Billed: the price, and nothing else.
   assert.equal(spendLabel(2.6146, true), "$2.6146");
-  assert.equal(spendLabel(2.6146, false), "$2.6146 equivalent");
+  assert.equal(spendLabel(2.6146, true, { input: 900, output: 100 }), "$2.6146");
 
-  assert.match(spendNote(false), /not to a card/);
+  // On a plan: tokens, and no dollar figure anywhere in the string.
+  const onPlan = spendLabel(2.6146, false, { input: 41_000, output: 7000 });
+  assert.equal(onPlan, "48k tokens");
+  assert.ok(!onPlan.includes("$"), "a plan is never shown a price");
+
+  assert.equal(spendLabel(2.6146, false, { input: 1_400_000, output: 200_000 }), "1.6M tokens");
+  assert.equal(spendLabel(2.6146, false, { input: 120, output: 30 }), "150 tokens");
+
+  // Nothing counted yet: say where it comes from rather than invent a figure.
+  assert.equal(spendLabel(2.6146, false), "on your Claude plan");
+
+  assert.match(spendNote(false), /Nothing is billed to a card/);
   assert.match(spendNote(true), /Billed to the configured API key/);
 });

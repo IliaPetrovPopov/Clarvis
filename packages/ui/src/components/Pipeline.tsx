@@ -1,4 +1,5 @@
 import type { Run } from "@clarvis/core/types";
+import { effortLabel } from "../data";
 import { Bar, Dot, Label, Mono, settle } from "./primitives";
 
 /**
@@ -212,7 +213,7 @@ const SILENT: Record<string, string> = {
   release: "no ship-or-hold verdict was reached",
 };
 
-function Teams({ run }: { run: Run }) {
+function Teams({ run, billed }: { run: Run; billed: boolean }) {
   const agents = run.agentRuns ?? [];
 
   const byFleet = new Map<string, typeof agents>();
@@ -248,7 +249,7 @@ function Teams({ run }: { run: Run }) {
         {keys.map((key, i) => {
           const fleet = byFleet.get(key)!;
           const failed = fleet.filter((a) => a.status !== "ok");
-          const cost = fleet.reduce((sum, a) => sum + (a.usdEstimate ?? 0), 0);
+          const effort = effortLabel(fleet, billed);
           const silent = !fleet.length;
           const tone = silent ? OFF : failed.length ? WARN : OK;
 
@@ -267,7 +268,7 @@ function Teams({ run }: { run: Run }) {
                   {FLEET_NAME[key] ?? key.toUpperCase()}
                 </span>
                 <span className="readout ml-auto text-[11px]" style={{ color: silent ? WARN : "var(--color-dim)" }}>
-                  {silent ? "did not run" : `${fleet.length} · $${cost.toFixed(2)}`}
+                  {silent ? "did not run" : `${fleet.length} · ${effort}`}
                 </span>
               </div>
 
@@ -295,7 +296,7 @@ function Teams({ run }: { run: Run }) {
   );
 }
 
-export function Pipeline({ run }: { run: Run }) {
+export function Pipeline({ run, billed = false }: { run: Run; billed?: boolean }) {
   if (!run.preparation && !(run.agentRuns ?? []).length && !(run.request?.fleets ?? []).length) {
     return null;
   }
@@ -308,7 +309,7 @@ export function Pipeline({ run }: { run: Run }) {
   return (
     <div className={`grid gap-5 px-5 pt-6 lg:px-8 ${prepared ? "lg:grid-cols-2" : ""}`}>
       {prepared && <Preparation prep={run.preparation!} />}
-      <Teams run={run} />
+      <Teams run={run} billed={billed} />
     </div>
   );
 }

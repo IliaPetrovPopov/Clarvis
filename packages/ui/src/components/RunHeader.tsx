@@ -1,5 +1,6 @@
 import type { Run } from "@clarvis/core/types";
 import { Reticle } from "./Reticle";
+import { effortLabel } from "../data";
 import { Bar, Dot, Label, Readout } from "./primitives";
 
 /**
@@ -82,7 +83,15 @@ function Guard({ run }: { run: Run }) {
   );
 }
 
-export function RunHeader({ run, source }: { run: Run; source: "live" | "fixture" }) {
+export function RunHeader({
+  run,
+  source,
+  billed = false,
+}: {
+  run: Run;
+  source: "live" | "fixture";
+  billed?: boolean;
+}) {
   const findings = run.findings ?? [];
   const confirmed = findings.filter((f) => f.tier === "CONFIRMED");
   const critical = confirmed.filter((f) => f.severity === "critical");
@@ -96,7 +105,7 @@ export function RunHeader({ run, source }: { run: Run; source: "live" | "fixture
     { passed: 0, failed: 0, skipped: 0 },
   );
 
-  const spend = (run.agentRuns ?? []).reduce((sum, a) => sum + (a.usdEstimate ?? 0), 0);
+  const agents = run.agentRuns ?? [];
 
   return (
     <header className="settle px-5 pt-5 lg:px-8">
@@ -197,9 +206,9 @@ export function RunHeader({ run, source }: { run: Run; source: "live" | "fixture
           sub={run.coverage?.rolesExercised?.length ? `${run.coverage.rolesExercised.length} role(s)` : undefined}
         />
         <Readout
-          value={spend > 0 ? `$${spend.toFixed(2)}` : "--"}
-          label="usage equivalent"
-          sub={`${(run.agentRuns ?? []).length} agent(s)`}
+          value={effortLabel(agents, billed)}
+          label={billed ? "billed" : "tokens used"}
+          sub={`${agents.length} agent(s)`}
         />
       </div>
 

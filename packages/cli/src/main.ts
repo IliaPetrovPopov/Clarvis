@@ -472,7 +472,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(
         `  disposable ${profile.data.disposable} (only a human can set this true)`,
       );
-      console.log(`  usage      ${spendLabel(report.usdEstimate)}`);
+      console.log(`  usage      ${spendLabel(report.usdEstimate, undefined, tokensOfAgents(report.agentRuns))}`);
 
       for (const r of report.rejectedCredentials)
         console.log(`  DROPPED    ${r.role}: ${r.reason}`);
@@ -648,7 +648,7 @@ export async function main(argv: string[]): Promise<void> {
       }
       console.log(`  accepted   ${report.accepted}`);
       console.log(`  unknowns   ${context.unknowns.length}`);
-      console.log(`  usage      ${spendLabel(report.usdEstimate)}`);
+      console.log(`  usage      ${spendLabel(report.usdEstimate, undefined, tokensOfAgents(report.agentRuns))}`);
       console.log(`             ${spendNote()}`);
 
       const ceiling = oracleCeiling(context);
@@ -1120,6 +1120,28 @@ async function specsFor(scratchDir: string, axis: string): Promise<string[]> {
  * empty, so the saved record - and the dashboard's COST stat, which reads it -
  * said $0.00 for a run that spent several dollars.
  */
+/** The same, for a command that has agent results rather than a run record. */
+function tokensOfAgents(results: Array<AgentResult<unknown>> = []): { input: number; output: number } {
+  return results.reduce(
+    (acc, r) => ({
+      input: acc.input + (r.usage?.inputTokens ?? 0),
+      output: acc.output + (r.usage?.outputTokens ?? 0),
+    }),
+    { input: 0, output: 0 },
+  );
+}
+
+/** Everything the run has consumed so far, summed from its own record. */
+function tokensOf(run: Run): { input: number; output: number } {
+  return (run.agentRuns ?? []).reduce(
+    (acc, a) => ({
+      input: acc.input + (a.tokens?.input ?? 0),
+      output: acc.output + (a.tokens?.output ?? 0),
+    }),
+    { input: 0, output: 0 },
+  );
+}
+
 function recordAgentRuns(run: Run, results: Array<AgentResult<unknown>>): void {
   run.agentRuns ??= [];
   run.agentRuns.push(
@@ -1128,6 +1150,7 @@ function recordAgentRuns(run: Run, results: Array<AgentResult<unknown>>): void {
       role: r.role,
       fleet: AGENTS[r.role]?.fleet,
       model: r.model,
+      tokens: r.usage ? { input: r.usage.inputTokens, output: r.usage.outputTokens } : undefined,
       status: (r.status === "ok" ? "ok" : "error") as "ok" | "error",
       usdEstimate: r.usdEstimate,
       transcriptPath: r.transcriptPath,
@@ -1173,7 +1196,7 @@ async function gradeFindings(opts: {
       }
     }
     recordAgentRuns(run, triage.agentRuns);
-    console.log(`  triage   ${spendLabel(triage.usdEstimate)}`);
+    console.log(`  triage   ${spendLabel(triage.usdEstimate, undefined, tokensOf(run))}`);
 
     // A discarded finding leaves the report but not the record: one that
     // vanished without explanation is indistinguishable from one nobody found.
@@ -1765,7 +1788,7 @@ async function runCommand(opts: {
 
     for (const w of crucible.warnings) run.truncation!.push(w);
     recordAgentRuns(run, crucible.agentRuns);
-    console.log(`  author   ${spendLabel(crucible.usdEstimate)}`);
+    console.log(`  author   ${spendLabel(crucible.usdEstimate, undefined, tokensOf(run))}`);
   }
 
   await markStage(projectRoot, run, "execute", "running the tests");
@@ -2033,7 +2056,7 @@ async function runCommand(opts: {
     `\n  ${run.status.toUpperCase()} - ${totals.passed} pass / ${totals.failed} fail / ${totals.skipped} skip`,
   );
   if (spent > 0) {
-    console.log(`  usage    ${spendLabel(spent)}`);
+    console.log(`  usage    ${spendLabel(spent, undefined, tokensOf(run))}`);
     console.log(`           ${spendNote()}`);
   }
   if (totals.skipped > 0)
