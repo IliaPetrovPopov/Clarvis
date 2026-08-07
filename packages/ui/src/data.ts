@@ -1,4 +1,5 @@
 import type { Run } from "@clarvis/core/types";
+import { API_CONTRACT } from "@clarvis/core/pipeline";
 
 /**
  * The UI never imports run data - it always fetches. That keeps this component
@@ -41,10 +42,11 @@ async function fetchJson<T>(url: string): Promise<T | undefined> {
 /**
  * What the UI needs the server to be.
  *
- * Kept in step with API_CONTRACT in the CLI. Raise both in the same commit
- * whenever an endpoint the UI depends on is added or changed.
+ * Imported rather than re-declared: this and the server's number drifted once
+ * already, and a page that needs one version while the process serving it
+ * announces another fails one fetch at a time with nothing said.
  */
-export const NEEDS_API = 2;
+export const NEEDS_API = API_CONTRACT;
 
 /**
  * Whether the server behind this page is old enough to break it.

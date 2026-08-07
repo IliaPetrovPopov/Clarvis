@@ -64,6 +64,7 @@ clarvis init                          # pick the teams for this project
 clarvis recon                         # how to boot it, how to log in, what to never touch
 clarvis research                      # gather requirements, verify every quote
 clarvis run                           # plan, author, gate, run, triage, draft, judge
+clarvis smoke [--live]                # run the whole pipeline against the demo app and check it
 clarvis benchmark                     # score a run against a known set of seeded bugs
 clarvis guard                         # print the safety decision without running anything
 clarvis ui --open                     # the dashboard
@@ -159,6 +160,46 @@ branch.
 - **No agent gets a shell or network access.** Connectors are code.
 - **A live `.env` is never read.** Templates only.
 - **A credential that does not appear verbatim in the project is dropped.**
+
+## The smoke run
+
+`clarvis smoke` runs the entire pipeline against the bundled demo app and then
+checks properties of the result that no unit test can see: that every stage
+fired, that none took long enough to be a hang, that the record holds what the
+dashboard reads, and that something was actually authored rather than a stale
+spec being picked up.
+
+It exists because of a pattern rather than a bug. Work kept being called
+finished on a passing test suite and a clean typecheck, and the integration
+bugs were found later by a person asking whether it worked - warm-up walking
+forty-seven routes serially, a progress scale the run could never reach the end
+of, tokens computed and discarded. Each was invisible to the tests and obvious
+within one real run.
+
+Agents are stubbed by default, so it takes about four seconds and no usage. The
+stub returns a real spec that passes the gate and drives a real browser -
+anything less would make the check green by never reaching the interesting
+part. `--live` calls the real agents, for a change that alters what one is
+asked to do.
+
+## Lessons: the fleet learning from itself
+
+Two signals were being thrown away at the end of every run. The gate refuses a
+spec and says exactly what was wrong with it. Triage rules a failure to be the
+test's fault rather than the application's, and explains how. Both are the spec
+author being corrected, in detail, by something that is not the spec author.
+
+They are kept now, generalised into a sentence, and put in the author's brief
+next time. A lesson whose mistake stops recurring is retired, so the brief does
+not fill with advice about problems nobody has.
+
+**Agents never edit their own prompts, code, or rules.** An agent that could
+rewrite the standard it is judged against would drift towards whatever made its
+own output look good, and nothing downstream would notice. It proposes a
+sentence; code vets it. Anything that would make the author's job easier at the
+cost of the result meaning something is refused outright - skipping a flaky
+test, preferring a visibility check to a real assertion, swallowing an error,
+touching the guard. The agent does not get a vote on those.
 
 ## The spec gate
 

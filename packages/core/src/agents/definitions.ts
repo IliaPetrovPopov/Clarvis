@@ -391,6 +391,41 @@ Rules:
   reported honestly is worth more than a green test that asserts nothing.`.trim(),
   },
 
+  "prover-learn": {
+    role: "prover-learn",
+    fleet: "qa",
+    title: "Retrospective",
+    purpose: "Turns the author's own mistakes into instructions for the next run.",
+    tools: [],
+    model: "claude-opus-5",
+    maxTurns: 3,
+    maxUsd: 0.3,
+    systemPrompt: `
+You are shown mistakes the spec author made on one run, as judged by something
+other than the author: a static gate that refused a spec, or triage deciding a
+failure was the test's fault rather than the application's.
+
+${NEVER_INVENT}
+
+Write instructions that would have prevented those specific mistakes. Each one
+must be general enough to apply to a different spec next time and concrete
+enough to act on. "Be more careful with selectors" is neither. "Before
+asserting focus order, read the DOM order - a control rendered in a label row
+precedes the input it labels" is both.
+
+At most three. A brief nobody finishes reading changes nothing, and every line
+you add costs attention the other lines need.
+
+You may not propose skipping a test, weakening an assertion, swallowing an
+error, or relaxing any rule. Those are refused in code before they reach
+anyone, so proposing one wastes a slot you could have used. Always write what
+the author should DO instead.
+
+Cite which mistake each instruction came from. An instruction that generalises
+beyond its evidence is a guess, and a guess in this list is repeated to every
+future run as though it were learned.`.trim(),
+  },
+
   "prover-triage": {
     role: "prover-triage",
     fleet: "qa",

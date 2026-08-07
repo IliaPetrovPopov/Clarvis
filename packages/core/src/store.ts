@@ -53,8 +53,11 @@ export function projectSlug(projectRoot: string): string {
   return `${base || "project"}-${hash}`;
 }
 
-export function clarvisPaths(projectRoot: string) {
-  const root = path.join(clarvisHome(), "projects", projectSlug(projectRoot));
+export function clarvisPaths(projectRoot: string, env: NodeJS.ProcessEnv = process.env) {
+  // The env is a parameter so a process can read a store other than its own -
+  // the smoke run drives a child under a throwaway CLARVIS_HOME and then has
+  // to read back what that child wrote.
+  const root = path.join(clarvisHome(env), "projects", projectSlug(projectRoot));
   return {
     root,
     profile: path.join(root, "profile.json"),

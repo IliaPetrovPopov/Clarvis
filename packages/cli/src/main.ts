@@ -10,7 +10,16 @@ import {
   decideGuard,
   applyGuardToAxes,
   provisionSandbox,
+  loadLessons,
+  saveLessons,
+  learnFromRun,
+  mistakesFrom,
+  renderLessons,
   AGENTS,
+  STAGES,
+  StubRunner,
+  stubAgentsRequested,
+  type StageKey,
   MUTATING_AXES,
   establishSessions,
   sessionsByRole,
@@ -100,6 +109,7 @@ import {
   type Sandbox,
 } from "@clarvis/core";
 import { serveUi } from "./ui.ts";
+import { describeSmoke, smoke } from "./smoke.ts";
 import { checkbox, confirm } from "./prompt.ts";
 
 const HELP = `
@@ -260,6 +270,8 @@ export async function main(argv: string[]): Promise<void> {
       "no-triage": { type: "boolean" },
       "allow-destructive": { type: "boolean" },
       "no-sandbox": { type: "boolean" },
+      live: { type: "boolean" },
+      verbose: { type: "boolean" },
       "keep-runs": { type: "string" },
       "max-mutants": { type: "string" },
       "no-restart": { type: "boolean" },
@@ -432,7 +444,7 @@ export async function main(argv: string[]): Promise<void> {
 
       // Recon reads real files, so it needs the tool-capable runner. The read
       // roots are the project itself - nothing outside it is reachable.
-      const runner = new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS });
+      const runner = agentRunner(projectRoot);
 
       const registered = await resolveProject(projectRoot).catch(() => undefined);
       const graph = registered?.useGraph ? new GraphConnector({ projectRoot }) : undefined;
@@ -705,6 +717,29 @@ export async function main(argv: string[]): Promise<void> {
       }
 
       throw new Error(`Unknown subcommand "${sub}". Use add, list or remove.`);
+    }
+
+    case "smoke": {
+      /*
+        The check to run before saying anything is finished.
+
+        Stubbed by default - seconds, no tokens - because the bugs it exists
+        for were all plumbing. `--live` calls the real agents, for a change
+        that alters what one is asked to do.
+      */
+      const result = await smoke({
+        live: values.live === true,
+        port: values.port ? Number(str(values.port)) : undefined,
+        log: values.verbose === true ? (l) => console.log(`  ${l}`) : undefined,
+      });
+
+      console.log("");
+      for (const line of describeSmoke(result)) console.log(`  ${line}`);
+      console.log("");
+
+      // Non-zero so this can gate a commit.
+      if (!result.ok) process.exitCode = 1;
+      return;
     }
 
     case "benchmark": {
@@ -1024,7 +1059,7 @@ export async function main(argv: string[]): Promise<void> {
 
       const { taxonomy, usdEstimate } = await deriveTaxonomy({
         fixes: mined.candidates,
-        runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
+        runner: agentRunner(projectRoot),
         budget: new Budget({ maxUsd: Number(str(values["max-usd"]) ?? 2) }),
         existing,
         transcriptDir: path.join(paths.root, "transcripts"),
@@ -1142,6 +1177,23 @@ function tokensOf(run: Run): { input: number; output: number } {
   );
 }
 
+/**
+ * The runner every command uses.
+ *
+ * One place, so the stub cannot be reached by accident and cannot become a
+ * fallback for a failed agent. A smoke run that quietly stopped calling the
+ * real thing would be the exact silent-green this product exists to prevent,
+ * committed by the tool built to catch it - so it is opt-in, explicit, and
+ * announced.
+ */
+function agentRunner(projectRoot: string): ClaudeCodeRunner | StubRunner {
+  if (stubAgentsRequested()) {
+    console.log("  runner   STUBBED - agents are not being called");
+    return new StubRunner();
+  }
+  return new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS });
+}
+
 function recordAgentRuns(run: Run, results: Array<AgentResult<unknown>>): void {
   run.agentRuns ??= [];
   run.agentRuns.push(
@@ -1175,7 +1227,7 @@ async function gradeFindings(opts: {
       profile: opts.profile,
       specDir: opts.paths.scratch,
       outputDir: opts.dir,
-      runner: new ClaudeCodeRunner({ addDirs: [opts.projectRoot], schemas: AGENT_SCHEMAS }),
+      runner: agentRunner(opts.projectRoot),
       budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
       context: opts.context,
       transcriptDir: path.join(opts.paths.root, "transcripts"),
@@ -1225,8 +1277,9 @@ async function gradeFindings(opts: {
 async function markStage(
   projectRoot: string,
   run: Run,
-  key: string,
-  label: string,
+  key: StageKey,
+  /** Optional override. Defaults to the label STAGES declares for this key. */
+  label = STAGES.find((s) => s.key === key)!.label,
 ): Promise<void> {
   const now = Date.now();
   const previous = run.stage;
@@ -1380,7 +1433,7 @@ async function runCommand(opts: {
   let sandboxRecord: NonNullable<Run["preparation"]>["sandbox"];
 
   if (wantsMutating && preflight.mode === "read-only" && opts.sandbox !== false) {
-    await markStage(projectRoot, run, "sandbox", "preparing a disposable database");
+    await markStage(projectRoot, run, "sandbox");
 
     const provisioned = await provisionSandbox({
       profile,
@@ -1471,7 +1524,7 @@ async function runCommand(opts: {
     return;
   }
 
-  await markStage(projectRoot, run, "context", "reading requirements");
+  await markStage(projectRoot, run, "context");
 
   /* --- 2. Gather the context the plan and the specs are written from ------- */
 
@@ -1503,7 +1556,7 @@ async function runCommand(opts: {
         profile,
         context,
         graph: registered?.useGraph ? new GraphConnector({ projectRoot }) : undefined,
-        runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
+        runner: agentRunner(projectRoot),
         budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
         candidateAxes: allowed,
         guardSkipped: skipped.map((sk) => sk.axis),
@@ -1535,8 +1588,10 @@ async function runCommand(opts: {
   }
 
   const specsByAxis = new Map<Axis, AuthoredSpec>();
+  /** Gate refusals, kept so the author can be taught from them at the end. */
+  const rejectedSpecs: Array<{ axis: string; violations: string[] }> = [];
 
-  await markStage(projectRoot, run, "boot", "starting the application");
+  await markStage(projectRoot, run, "boot");
 
   /* --- 3. Boot, and refuse to test an app we cannot prove is up ------------ */
 
@@ -1619,7 +1674,7 @@ async function runCommand(opts: {
     return;
   }
 
-  await markStage(projectRoot, run, "surface", "logging in and mapping the pages");
+  await markStage(projectRoot, run, "surface");
 
   /* --- 3c. Log in, and look at the real pages ------------------------------ */
 
@@ -1746,22 +1801,30 @@ async function runCommand(opts: {
     if (!prepared.targetCheck.ok) console.log(`  data     ${prepared.targetCheck.reason}`);
   }
 
-  await markStage(projectRoot, run, "author", "writing the specs");
+  await markStage(projectRoot, run, "author");
 
   /* --- 3e. Author, now against an application that is actually running ----- */
 
   if (opts.author !== false && axesToRun.length) {
     await mkdir(paths.scratch, { recursive: true });
+
+    // What this project's author has already been corrected on.
+    const learned = await loadLessons(projectRoot);
+    if (learned.lessons.length) {
+      console.log(`  author   ${learned.lessons.length} lesson(s) from earlier runs are in the brief`);
+    }
+
     const crucible = await authorSpecs({
       axes: axesToRun,
       profile,
       context,
-      runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
+      runner: agentRunner(projectRoot),
       budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
       scratchDir: paths.scratch,
       transcriptDir: path.join(paths.root, "transcripts"),
       sessions,
       data: dataState,
+      lessons: renderLessons(learned),
     });
 
     for (const spec of crucible.authored) {
@@ -1779,6 +1842,7 @@ async function runCommand(opts: {
     }
 
     for (const r of crucible.rejected) {
+      rejectedSpecs.push({ axis: r.axis, violations: r.violations });
       console.log(
         `  author   ${r.axis.padEnd(18)} REJECTED by the gate after ${r.attempts} attempt(s)`,
       );
@@ -1791,7 +1855,7 @@ async function runCommand(opts: {
     console.log(`  author   ${spendLabel(crucible.usdEstimate, undefined, tokensOf(run))}`);
   }
 
-  await markStage(projectRoot, run, "execute", "running the tests");
+  await markStage(projectRoot, run, "execute");
 
   /* --- 4. Axes, each in its own browser process ---------------------------- */
 
@@ -1892,7 +1956,7 @@ async function runCommand(opts: {
     throw e;
   }
 
-  await markStage(projectRoot, run, "triage", "trying to reproduce each failure");
+  await markStage(projectRoot, run, "triage");
 
   /* --- 5. Triage: try to make each finding go away ------------------------- */
 
@@ -1948,14 +2012,14 @@ async function runCommand(opts: {
       run.truncation!.push(`${a.key}: ${a.skipReason}`);
   }
 
-  await markStage(projectRoot, run, "deliver", "drafting tickets and judging the release");
+  await markStage(projectRoot, run, "deliver");
 
   /* --- SCRIBE and JUDGE: what happens to what we found --------------- */
 
   if (enabled.has("delivery")) {
     const dispatch = await draftTickets({
       run,
-      runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
+      runner: agentRunner(projectRoot),
       budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
       // Writes stay off unless a human turned them on in the profile. Drafting
       // is always safe; filing is not, and the two are separate steps.
@@ -1982,7 +2046,7 @@ async function runCommand(opts: {
   if (enabled.has("release")) {
     const clearance = await decideAndDescribe({
       run,
-      runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
+      runner: agentRunner(projectRoot),
       budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
       release: { degradations: fleets.degradations },
       transcriptDir: path.join(paths.root, "transcripts"),
@@ -2017,9 +2081,30 @@ async function runCommand(opts: {
   run.findings = applied.reported;
   await saveLedger(projectRoot, recordRun(ledgerBefore, run));
 
+  /* --- what the author got wrong, kept for next time ----------------------- */
+
+  const mistakes = mistakesFrom(run, rejectedSpecs);
+  if (mistakes.length && opts.author !== false) {
+    const before = await loadLessons(projectRoot);
+    const learnt = await learnFromRun({
+      run,
+      mistakes,
+      existing: before,
+      runner: agentRunner(projectRoot),
+      budget: new Budget({ maxUsd: 0.5 }),
+      transcriptDir: path.join(paths.root, "transcripts"),
+    });
+
+    await saveLessons(projectRoot, learnt.lessons);
+    recordAgentRuns(run, learnt.agentRuns);
+
+    for (const l of learnt.added) console.log(`  learned  ${l.text}`);
+    for (const r of learnt.refused) console.log(`  refused  ${r.why}: "${r.text}"`);
+  }
+
   // Close the last stage out, so a finished run does not read as one still
   // sitting in whatever step it happened to end on.
-  await markStage(projectRoot, run, "done", "finished");
+  await markStage(projectRoot, run, "done");
 
   const file = await writeRun(projectRoot, run);
 

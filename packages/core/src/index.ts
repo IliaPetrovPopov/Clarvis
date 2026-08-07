@@ -45,3 +45,6 @@ export * from "./session.ts";
 export * from "./surface.ts";
 export * from "./fixtures.ts";
 export * from "./sandbox.ts";
+export * from "./pipeline.ts";
+export * from "./agents/stubRunner.ts";
+export * from "./lessons.ts";

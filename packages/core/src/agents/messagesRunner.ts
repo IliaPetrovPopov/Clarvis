@@ -370,6 +370,30 @@ export const AGENT_SCHEMAS: Record<string, Record<string, unknown>> = {
     },
   },
 
+  "prover-learn": {
+    type: "object",
+    required: ["lessons"],
+    properties: {
+      lessons: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["text"],
+          properties: {
+            text: {
+              type: "string",
+              description: "One instruction. General enough to reuse, concrete enough to act on.",
+            },
+            evidenceIndex: {
+              type: "number",
+              description: "Which listed mistake this came from. A lesson without one is a guess.",
+            },
+          },
+        },
+      },
+    },
+  },
+
   "prover-triage": {
     type: "object",
     required: ["fault", "reason"],

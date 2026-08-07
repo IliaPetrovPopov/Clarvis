@@ -243,7 +243,11 @@ function renderData(profile: Profile, data?: { seeded: boolean; note?: string })
 function renderPlan(
   plan: AxisPlan,
   profile: Profile,
-  extra?: { sessions?: Record<string, string>; data?: { seeded: boolean; note?: string } },
+  extra?: {
+    sessions?: Record<string, string>;
+    data?: { seeded: boolean; note?: string };
+    lessons?: string;
+  },
 ): string {
   const roles = profile.auth.roles.filter((r) => plan.roles.includes(r.key));
 
@@ -303,6 +307,7 @@ function renderPlan(
       : "REQUIREMENTS: none verified. Assert only what the application itself makes observable, " +
         "and list everything you could not judge in 'untested'.",
     plan.notes.length ? `\nNOTES:\n${plan.notes.map((n) => `  - ${n}`).join("\n")}` : "",
+    extra?.lessons ?? "",
     "",
     renderData(profile, extra?.data),
     "",
@@ -314,6 +319,14 @@ function renderPlan(
 
 export interface AuthorOptions {
   axes: Axis[];
+  /**
+   * What this project's author has previously got wrong.
+   *
+   * Rendered into the brief so a mistake the gate or triage has already caught
+   * is not made again. Comes from `lessons.json`, which only ever holds
+   * sentences that survived a code-side vet.
+   */
+  lessons?: string;
   profile: Profile;
   context?: FeatureContext;
   runner: AgentRunner;
@@ -369,7 +382,11 @@ export async function authorSpecs(opts: AuthorOptions): Promise<CrucibleReport> 
 
     // Rendered once: it is the largest part of the prompt and identical across
     // attempts, so building it per attempt would only cost tokens.
-    const brief = renderPlan(plan, opts.profile, { sessions: opts.sessions, data: opts.data });
+    const brief = renderPlan(plan, opts.profile, {
+      sessions: opts.sessions,
+      data: opts.data,
+      lessons: opts.lessons,
+    });
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await runAgent<AuthorOutput>({

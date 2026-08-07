@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   FLEETS,
   FLEET_KEYS,
+  API_CONTRACT,
   addProject,
   clarvisPaths,
   isBilledInDollars,
@@ -27,15 +28,6 @@ const ARTIFACTS = new Set(["profile.json", "context.json", "plan.json", "ledger.
 
 /** The same, for output written per run. */
 const RUN_ARTIFACTS = new Set(["drafts.json", "verdict.json", "differential.json"]);
-
-/**
- * Bumped whenever the API gains or changes an endpoint the UI depends on.
- *
- * The bundle records the number it was built against; a page whose number is
- * higher than the server's is talking to a process that predates it and says
- * so, rather than failing one fetch at a time.
- */
-export const API_CONTRACT = 2;
 
 const STARTED_AT = new Date().toISOString();
 

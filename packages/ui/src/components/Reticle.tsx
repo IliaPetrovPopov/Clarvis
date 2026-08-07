@@ -1,4 +1,5 @@
 import type { Run } from "@clarvis/core/types";
+import { STAGE_KEYS } from "@clarvis/core/pipeline";
 import { Label } from "./primitives";
 
 /**
@@ -39,17 +40,9 @@ function arc(cx: number, cy: number, r: number, from: number, to: number): strin
   return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`;
 }
 
-const STAGE_ORDER = [
-  "sandbox",
-  "context",
-  "boot",
-  "surface",
-  "author",
-  "execute",
-  "triage",
-  "deliver",
-  "done",
-];
+/* Imported, not re-listed: the run stamps these and this draws them, and a
+   copy here drifted from the emitter within a day of being written. */
+const STAGE_ORDER = STAGE_KEYS;
 
 export function Reticle({ run, size = 148 }: { run: Run; size?: number }) {
   const cx = size / 2;
