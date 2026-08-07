@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "clarvis": "node packages/cli/bin/clarvis.mjs",
-    "test": "pnpm --filter @clarvis/core test"
+    "test": "pnpm --filter @clarvis/core test && pnpm --filter @clarvis/cli test && pnpm --filter @clarvis/ui test"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

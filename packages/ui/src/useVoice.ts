@@ -62,6 +62,14 @@ export interface VoiceState {
 export interface UseVoice extends VoiceState {
   /** The one voice that will be used. Chosen automatically. */
   activeVoice?: SpeechSynthesisVoice;
+  /**
+   * How good that voice is.
+   *
+   * Surfaced because the honest answer to "it sounds robotic" is often that
+   * the machine has nothing better installed, and no amount of picking can
+   * fix that from here. Saying so lets a person go and install one.
+   */
+  voiceTier?: VoiceTier;
   speak: (text: string) => void;
   stopSpeaking: () => void;
   listen: () => void;
@@ -71,40 +79,139 @@ export interface UseVoice extends VoiceState {
 /**
  * Voice selection: one voice, chosen automatically, no picker.
  *
- * British received pronunciation, male, unhurried. That register - not any
- * particular timbre - is most of what makes a spoken assistant read as composed
- * rather than chirpy, and it is the closest thing to the reference without
- * imitating a specific performer's identity.
+ * This used to name `Daniel` first and take it wherever it existed. Daniel is
+ * the classic macOS en-GB male, and "classic" is the problem: it is a
+ * concatenative voice from around 2009, and no amount of rate and pitch
+ * adjustment makes that sound like a person. Picking by name meant the oldest
+ * voice on the system beat every better one installed beside it.
  *
- * `Daniel` is the classic macOS en-GB male and is a local voice, so it works
- * offline and no audio leaves the machine. The rest of the list is the fallback
- * order for machines that do not have it, best match first.
+ * So the choice is made on QUALITY first and register second. Synthesis has
+ * had a generational change - neural voices are not a refinement of the old
+ * ones, they are a different technology - and a modern voice in the wrong
+ * accent sounds far more human than a legacy voice in the right one.
+ *
+ * The register is still the goal where quality allows it: unhurried, level,
+ * British-leaning. That is what makes a spoken assistant read as composed
+ * rather than chirpy, and it is as close to the reference as one gets without
+ * imitating a particular performer.
  */
-const PREFERRED_VOICES = [
-  "Daniel",       // macOS en-GB male, local. The target.
-  "Arthur",       // newer macOS en-GB male
-  "Oliver",       // en-GB male
-  "Google UK English Male",
-  "Rishi",        // en-IN male, still RP-adjacent and calm
-  "Alex",         // macOS en-US male, deep and level
+
+/** Quality tiers, best first. Higher wins regardless of accent. */
+const TIERS = [
+  {
+    key: "premium",
+    /** macOS Premium voices. The best available anywhere on this API. */
+    test: (v: SpeechSynthesisVoice) => /premium/i.test(v.name) || /premium/i.test(v.voiceURI),
+  },
+  {
+    key: "enhanced",
+    /** macOS Enhanced. A large step up from compact; needs a download. */
+    test: (v: SpeechSynthesisVoice) => /enhanced/i.test(v.name) || /enhanced/i.test(v.voiceURI),
+  },
+  {
+    key: "neural",
+    /**
+     * Cloud neural voices. Chrome ships Google's; Edge ships Microsoft's.
+     * Not local, so synthesis text leaves the machine - acceptable here
+     * because a briefing is generated from the operator's own run data and is
+     * about to be read aloud in the room anyway.
+     */
+    test: (v: SpeechSynthesisVoice) =>
+      /^(Google|Microsoft)\b/i.test(v.name) || /natural|neural/i.test(v.name),
+  },
+  {
+    key: "modern",
+    /**
+     * Apple's current-generation local voices, shipped by default since
+     * macOS 13. Markedly more natural than the compact set they sit beside,
+     * and present without any download - which on a machine with nothing
+     * installed is the difference between a robot and a person.
+     */
+    test: (v: SpeechSynthesisVoice) =>
+      /^(Eddy|Flo|Reed|Rocko|Sandy|Shelley|Grandma|Grandpa|Nicky|Aaron)\b/i.test(v.name),
+  },
+  {
+    key: "legacy",
+    /** Everything else that is a real voice: Daniel, Alex, Samantha, Karen. */
+    test: () => true,
+  },
+] as const;
+
+export type VoiceTier = (typeof TIERS)[number]["key"];
+
+/**
+ * Voices that are jokes, instruments or sound effects.
+ *
+ * macOS ships a couple of dozen of these and they are indistinguishable from
+ * real voices in the API - same language, same localService flag. Any
+ * fallback that ends in "the first English voice" can therefore land on
+ * Bubbles or Trinoids, which is a genuinely possible outcome rather than a
+ * theoretical one.
+ */
+const NOVELTY =
+  /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Junior|Kathy|Organ|Ralph|Superstar|Trinoids|Whisper|Wobble|Zarvox|Deranged|Hysterical|Princess|Bruce|Agnes|Vicki|Victoria|Fred)\b/i;
+
+/** Preferred accent order, applied only within a tier. */
+const ACCENTS = ["en-GB", "en-AU", "en-IE", "en-US"];
+
+/**
+ * Names to favour inside a tier, most suitable first.
+ *
+ * An ordered list rather than one alternation, because a regex only answers
+ * "does this match" - so the winner was whichever voice the system happened to
+ * list first, and Eddy beat Reed for no reason anyone chose. The register
+ * wanted here is level and unhurried; Apple's modern set includes voices that
+ * are deliberately characterful, and a briefing read by an excitable one is
+ * worse than a dull one read plainly.
+ */
+const FAVOURED = [
+  "Serena",   // en-GB female, premium, composed
+  "Malcolm",  // en-GB male, premium
+  "Jamie",    // en-GB male, premium
+  "Reed",     // modern, level - the calmest of the current local set
+  "Oliver",
+  "Arthur",
+  "Sandy",
+  "Daniel",   // legacy, but the right register when nothing better exists
+  "Eddy",
 ];
 
-export function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
-  const english = voices.filter((v) => v.lang.startsWith("en"));
-  if (!english.length) return voices[0];
-
-  for (const name of PREFERRED_VOICES) {
-    const match = english.find((v) => v.name === name) ?? english.find((v) => v.name.includes(name));
+/** The first voice matching the earliest favoured name, so order is intent. */
+function preferred(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
+  for (const name of FAVOURED) {
+    const match = voices.find((v) => new RegExp(`^${name}\\b`, "i").test(v.name));
     if (match) return match;
   }
+  return undefined;
+}
 
-  // Failing a named match, still lean British before anything else.
-  return (
-    english.find((v) => v.lang === "en-GB" && v.localService) ??
-    english.find((v) => v.lang === "en-GB") ??
-    english.find((v) => v.localService) ??
-    english[0]
-  );
+export function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
+  const usable = voices.filter((v) => v.lang?.startsWith("en") && !NOVELTY.test(v.name));
+  if (!usable.length) return voices.find((v) => !NOVELTY.test(v.name)) ?? voices[0];
+
+  for (const tier of TIERS) {
+    // Assigned to the FIRST tier it matches, so an enhanced voice is never
+    // also counted as legacy by the catch-all below it.
+    const inTier = usable.filter(
+      (v) => TIERS.find((t) => t.test(v))?.key === tier.key,
+    );
+    if (!inTier.length) continue;
+
+    for (const accent of ACCENTS) {
+      const sameAccent = inTier.filter((v) => v.lang === accent);
+      if (!sameAccent.length) continue;
+      return preferred(sameAccent) ?? sameAccent[0];
+    }
+    return preferred(inTier) ?? inTier[0];
+  }
+
+  return usable[0];
+}
+
+/** Which tier a voice belongs to, so the UI can say when it is stuck on a poor one. */
+export function tierOf(voice?: SpeechSynthesisVoice): VoiceTier | undefined {
+  if (!voice) return undefined;
+  return TIERS.find((t) => t.test(voice))?.key;
 }
 
 export interface VoiceOptions {
@@ -155,9 +262,20 @@ export function useVoice(
       const utterance = new SpeechSynthesisUtterance(text);
       const voice = pickVoice(voices);
       if (voice) utterance.voice = voice;
-      // Unhurried and level. Speeding up a status report makes it sound anxious.
-      utterance.rate = options.rate ?? 0.94;
-      utterance.pitch = options.pitch ?? 0.95;
+
+      /*
+        Barely under natural, and only barely.
+
+        These were 0.94 and 0.95, which were chosen while the voice was always
+        Daniel: slowing a concatenative voice down and dropping its pitch hides
+        some of its seams. On a neural voice the same settings do the opposite,
+        because the prosody was modelled at natural speed and stretching it is
+        exactly what makes a good voice sound synthetic. So the correction is
+        applied only where it still helps.
+      */
+      const legacy = tierOf(voice) === "legacy";
+      utterance.rate = options.rate ?? (legacy ? 0.94 : 1);
+      utterance.pitch = options.pitch ?? (legacy ? 0.95 : 1);
 
       utterance.onstart = () => setSpeaking(true);
       utterance.onend = () => setSpeaking(false);
@@ -245,6 +363,7 @@ export function useVoice(
     canSpeak,
     canListen,
     activeVoice: pickVoice(voices),
+    voiceTier: tierOf(pickVoice(voices)),
     speak,
     stopSpeaking,
     listen,

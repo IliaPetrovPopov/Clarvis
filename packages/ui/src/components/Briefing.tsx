@@ -278,7 +278,7 @@ export function Briefing({
         matters and a dropdown of forty system voices is a settings screen, not
         a briefing. The name is shown so it is never a mystery which one spoke.
       */}
-      <div className="mt-8 flex flex-wrap items-center gap-2.5">
+      <div className="mt-8 flex flex-wrap items-center gap-x-3 gap-y-2">
         <Chip
           onClick={() => setAddress(address === "formal" ? "plain" : "formal")}
           active={address === "formal"}
@@ -292,6 +292,29 @@ export function Briefing({
           </span>
         )}
       </div>
+
+      {/*
+        The honest answer to "this sounds robotic".
+
+        Voice quality is a property of the machine, not of this code. The
+        compact voices macOS ships by default are concatenative and from
+        another era, and no selection logic here can make one of them sound
+        like a person - so where that is all there is, say so and say what
+        fixes it, rather than leaving someone to conclude the app is bad at
+        speaking.
+      */}
+      {voice.canSpeak && (voice.voiceTier === "legacy" || voice.voiceTier === "modern") && (
+        <p className="prose mt-2 max-w-[76ch] text-[11.5px]" style={{ color: "var(--color-dim)" }}>
+          {voice.voiceTier === "legacy"
+            ? "This machine has only the compact voices macOS installs by default, which is why it sounds synthetic."
+            : "This is the best voice installed here, and it is still one of the built-in ones."}{" "}
+          For a markedly more human one: System Settings &rsaquo; Accessibility &rsaquo; Spoken
+          Content &rsaquo; System Voice &rsaquo; Manage Voices, then download any English voice
+          marked <span style={{ color: "var(--color-signal)" }}>Premium</span> or{" "}
+          <span style={{ color: "var(--color-signal)" }}>Enhanced</span>. It is picked up
+          automatically on the next reload - nothing here needs changing.
+        </p>
+      )}
     </section>
   );
 }
