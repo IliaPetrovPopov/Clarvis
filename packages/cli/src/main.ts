@@ -395,6 +395,15 @@ export async function main(argv: string[]): Promise<void> {
       if (!hasProfile) {
         console.log("");
         console.log(`  SCOUT has not walked this project yet. Nothing can run without a profile.`);
+
+        // `--fleet` means this was scripted, and the help says so. A prompt
+        // here blocks forever with no terminal attached, which is how
+        // registering four projects in a loop hung on the fourth.
+        if (preset?.length) {
+          console.log(`\n  next       clarvis recon --project ${projectRoot}\n`);
+          return;
+        }
+
         const now = await confirm("Run recon now?", true);
         if (now) {
           console.log("");

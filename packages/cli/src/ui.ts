@@ -94,9 +94,24 @@ export async function serveUi(
     haveDist = false;
   }
 
-  // The directory the server was launched against is always available, even if
-  // it was never added to the registry - otherwise a fresh install shows nothing.
-  await addProject(projectRoot).catch(() => undefined);
+  /*
+    Register the launch directory, but only if it is plausibly a project.
+
+    This used to add whatever it was pointed at. An application launched from
+    the dock has a working directory of "/", so the desktop app registered the
+    filesystem root as a project on every launch - a nameless entry in the
+    switcher that nothing could ever be run against. Auto-registration is a
+    convenience for someone running `clarvis ui` inside a repository; it should
+    not invent a project out of a cwd nobody chose.
+  */
+  const looksLikeProject = await Promise.all([
+    stat(path.join(projectRoot, "package.json")).then(() => true).catch(() => false),
+    stat(path.join(projectRoot, ".git")).then(() => true).catch(() => false),
+  ]).then((found) => found.some(Boolean));
+
+  if (looksLikeProject) {
+    await addProject(projectRoot).catch(() => undefined);
+  }
 
   const json = (res: http.ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { "content-type": MIME[".json"] });
