@@ -342,6 +342,22 @@ export interface Run {
   }>;
   /** What the run deliberately did not cover. Shown, never silent. */
   /**
+   * Where the run has got to, written as it goes.
+   *
+   * A run takes minutes and used to record nothing until it finished, so a
+   * dashboard watching one could say only "running" - which is the same thing
+   * it says for a run that has hung. Each stage is stamped when it starts and
+   * the finished ones keep their duration, so a reader can see both what is
+   * happening now and what it cost to get there.
+   */
+  stage?: {
+    key: string;
+    label: string;
+    startedAt: string;
+    done?: Array<{ key: string; label: string; ms: number }>;
+  };
+
+  /**
    * What each preparation stage actually did.
    *
    * These used to leave a trace only when they failed, as prose in

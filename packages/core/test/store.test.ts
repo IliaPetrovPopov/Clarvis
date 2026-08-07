@@ -1,3 +1,6 @@
+// Must come first: it points the store at a temp directory before any
+// module under test resolves a path from it.
+import "./isolate.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";

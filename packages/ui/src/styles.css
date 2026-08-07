@@ -1,57 +1,99 @@
 @import "tailwindcss";
 
+@import "@fontsource/ibm-plex-sans-condensed/400.css";
+@import "@fontsource/ibm-plex-sans-condensed/500.css";
+@import "@fontsource/ibm-plex-sans-condensed/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource-variable/ibm-plex-sans";
+
 /*
-  CLARVIS - holographic operations HUD.
+  CLARVIS - an instrument, not an interface.
 
-  Direction: a heads-up display projected into a dark room. Angular clipped
-  frames instead of rounded cards, cyan light on deep blue-black, corner
-  brackets and scan sweeps. Everything reads as instrumentation being projected
-  rather than as a document being displayed.
+  The previous direction was a heads-up display: cyan on navy, corner brackets
+  on every frame, a scanline over the whole page. The trouble with it was not
+  taste, it was information. When everything glows equally, nothing is
+  emphasised - and a dashboard whose entire job is telling you which of forty
+  numbers deserves your attention had thrown away its only means of saying so.
+  Uniform treatment is the absence of hierarchy wearing the costume of design.
 
-  Two encodings, kept deliberately separate so they never fight:
-    - TIER     -> luminance. Confidence is how brightly a thing is lit.
-    - SEVERITY -> hue. Impact is the only thing that changes colour.
-  So a discarded critical dims out, while a confirmed low still burns steady.
+  So: a precision instrument. An aviation display, a measuring device, a
+  Bloomberg terminal built by someone with taste. Four rules carry it.
+
+  A NEUTRAL FIELD. The page is graphite, not blue. Colour that appears anywhere
+  is therefore signal, and there is very little of it. Cyan means live or
+  confirmed. Gold means a human is needed. Everything else is a grey.
+
+  DEPTH FROM MATERIAL. Surfaces are layered and lit from above with real
+  shadow, so panels sit on the page rather than being drawn onto it. A dark
+  interface goes flat and cheap without this; grain and elevation are what make
+  it read as a material rather than as an absence of light.
+
+  TYPOGRAPHY DOES THE WORK. Condensed sans for the labels an instrument panel
+  is covered in, mono for anything that must be read character by character,
+  and tabular figures everywhere a number appears so columns line up. The old
+  design set everything in mono, which is the typographic equivalent of
+  shouting every word.
+
+  MOTION WITH WEIGHT. Things settle rather than appear. One element pulses -
+  the stage currently executing - and nothing else moves once at rest, because
+  perpetual animation on a monitoring surface is noise pretending to be life.
 */
 
 @theme {
-  --font-display: "Chakra Petch", "Eurostile", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Condensed for labels and headings: an instrument is covered in small type
+     that has to stay legible in a narrow column. */
+  --font-display: "IBM Plex Sans Condensed", ui-sans-serif, system-ui, sans-serif;
+  /* Prose - the few places a full sentence is the right answer. */
+  --font-sans: "IBM Plex Sans Variable", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  /* Anything read character by character: ids, paths, selectors, quotes. */
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Deep space blues. Never neutral grey - the field is lit from within. */
-  --color-void: #03060c;
-  --color-deep: #060c16;
-  --color-panel: #08121f;
-  --color-raised: #0c1a2b;
-  --color-edge: #12324a;
-  --color-edge-bright: #1d5b7f;
+  /*
+    A neutral ramp with a trace of blue in the shadows - enough that the field
+    reads as cool rather than muddy, not enough to compete with the signal.
+  */
+  --color-ink-000: #07080a;
+  --color-ink-050: #0a0c0f;
+  --color-ink-100: #0e1116;
+  --color-ink-200: #14181f;
+  --color-ink-300: #1b2028;
+  --color-ink-400: #252b35;
+  --color-ink-500: #333b47;
 
-  --color-dim: #4a708a;
-  --color-muted: #7ea6bf;
-  --color-body: #c2e2f2;
-  --color-bright: #eafaff;
+  --color-hair: #1c222b;
+  --color-hair-lit: #2c3542;
 
-  /* Primary signal - arc-reactor cyan. */
-  --color-cyan: #22d9ff;
-  --color-cyan-dim: #0d7fa0;
+  --color-dim: #5d6875;
+  --color-muted: #8b97a5;
+  --color-body: #c3ccd6;
+  --color-bright: #eef2f6;
 
-  /* Secondary states. */
-  --color-amber: #ffb02e;
-  --color-green: #23ffc7;
+  /* Live, active, confirmed. The only cyan in the system. */
+  --color-signal: #3ee0f0;
+  --color-signal-deep: #14808f;
 
-  /* Severity ramp - the only hue variation in the system. */
-  --color-sev-critical: #ff3d5e;
-  --color-sev-high: #ff8a1f;
-  --color-sev-medium: #ffd23d;
-  --color-sev-low: #4aa8d8;
+  /* A human is needed here. */
+  --color-attend: #f0ad4a;
 
-  --radius-sm: 0px;
-  --radius-md: 0px;
+  --color-good: #38e0a5;
+
+  /* Impact. The only hue variation, and it never means anything else. */
+  --color-sev-critical: #ff4d6a;
+  --color-sev-high: #ff8f3f;
+  --color-sev-medium: #f5c542;
+  --color-sev-low: #6b91b0;
+
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
 }
 
 @layer base {
-  * {
-    border-color: var(--color-edge);
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-hair);
   }
 
   html,
@@ -62,271 +104,186 @@
 
   body {
     margin: 0;
-    background: var(--color-void);
+    background: var(--color-ink-000);
     color: var(--color-body);
-    font-family: var(--font-mono);
+    font-family: var(--font-display);
     font-size: 13px;
-    line-height: 1.55;
+    line-height: 1.5;
+    font-feature-settings: "tnum" 1, "cv05" 1;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    /*
-      Ligatures off, everywhere.
-
-      JetBrains Mono renders `--` as a single long dash, so `clarvis run
-      --project` displayed as an em-dash - a character this project does not
-      use anywhere, and worse, a command nobody could retype from what they saw.
-      Arrows and `!=` fuse the same way. In a monospace UI whose whole job is
-      showing exact strings, one glyph per character is the requirement.
-    */
-    font-variant-ligatures: none;
-    font-feature-settings: "liga" 0, "calt" 0, "dlig" 0;
   }
 
   /*
-    Projection atmosphere in two fixed layers behind the content: a cold radial
-    wash, then an engineering grid crossed with fine scanlines.
+    Ligatures off, everywhere.
+
+    A mono UI whose job is showing exact strings needs one glyph per character.
+    Fused `--` renders as a dash nobody can retype, and `!=` as a glyph that is
+    not in the string being quoted.
   */
+  code,
+  pre,
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "calt" 0, "tnum" 1;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-signal) 28%, transparent);
+    color: var(--color-bright);
+  }
+
+  /* A dark page with no texture reads as a hole. Grain gives it a surface. */
   body::before {
     content: "";
     position: fixed;
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background:
-      radial-gradient(ellipse 120% 80% at 50% -10%, rgba(34, 217, 255, 0.13), transparent 60%),
-      radial-gradient(ellipse 80% 60% at 100% 100%, rgba(34, 217, 255, 0.06), transparent 55%);
+    opacity: 0.32;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
   }
 
+  /*
+    A single, very slow light from above-left. It gives the whole field a
+    direction, which is most of why layered surfaces read as physical.
+  */
   body::after {
     content: "";
     position: fixed;
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background-image:
-      linear-gradient(rgba(34, 217, 255, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(34, 217, 255, 0.055) 1px, transparent 1px),
-      repeating-linear-gradient(
-        0deg,
-        rgba(34, 217, 255, 0.028) 0px,
-        rgba(34, 217, 255, 0.028) 1px,
-        transparent 1px,
-        transparent 3px
-      );
-    background-size:
-      52px 52px,
-      52px 52px,
-      100% 3px;
-    mask-image: radial-gradient(ellipse 100% 75% at 50% 20%, #000 10%, transparent 85%);
-  }
-
-  ::selection {
-    background: rgba(34, 217, 255, 0.3);
-    color: var(--color-bright);
+    background:
+      radial-gradient(120% 80% at 12% -10%, color-mix(in srgb, var(--color-signal) 5%, transparent), transparent 55%),
+      radial-gradient(80% 55% at 100% 0%, color-mix(in srgb, var(--color-attend) 3%, transparent), transparent 60%);
   }
 
   ::-webkit-scrollbar {
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--color-edge);
-    border: 2px solid transparent;
-    background-clip: content-box;
+    background: var(--color-ink-400);
+    border: 3px solid var(--color-ink-000);
+    border-radius: 99px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-cyan-dim);
-    background-clip: content-box;
-  }
-
-  button {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
+    background: var(--color-ink-500);
   }
 }
 
 @layer components {
-  /* Wide technical label. The connective tissue of the whole HUD. */
-  .label {
+  /*
+    Elevation.
+
+    Three levels and no more. A dark interface loses legibility fast when
+    surfaces stack, so each level is a small step in lightness plus a real
+    shadow, and the top edge is caught with a hairline highlight the way a
+    physical panel catches light.
+  */
+  .surface {
+    background: linear-gradient(180deg, var(--color-ink-100), var(--color-ink-050));
+    border: 1px solid var(--color-hair);
+    border-radius: var(--radius-md);
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, #fff 4%, transparent) inset,
+      0 8px 24px -12px rgb(0 0 0 / 0.9);
+  }
+
+  .surface-raised {
+    background: linear-gradient(180deg, var(--color-ink-200), var(--color-ink-100));
+    border: 1px solid var(--color-hair-lit);
+    border-radius: var(--radius-md);
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, #fff 6%, transparent) inset,
+      0 16px 40px -20px rgb(0 0 0 / 1);
+  }
+
+  .surface-sunken {
+    background: var(--color-ink-000);
+    border: 1px solid var(--color-hair);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 2px 10px -4px rgb(0 0 0 / 0.8) inset;
+  }
+
+  /* Instrument label: the small type an equipment panel is covered in. */
+  .lbl {
     font-family: var(--font-display);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.22em;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-dim);
-    line-height: 1.4;
   }
 
-  /* Display face for readouts and headings. */
-  .hud-type {
-    font-family: var(--font-display);
-    font-weight: 600;
-    letter-spacing: 0.04em;
+  /* A reading. Tabular by construction so columns of them align. */
+  .readout {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "liga" 0;
   }
 
-  .glow {
-    text-shadow:
-      0 0 12px currentColor,
-      0 0 28px color-mix(in srgb, currentColor 45%, transparent);
+  /* Prose. Used sparingly and never for data. */
+  .prose {
+    font-family: var(--font-sans);
+    line-height: 1.62;
   }
 
   /*
-    Angular frame. The outer element is the 1px border in light; the inner one
-    is inset by 1px and carries the fill, so the cut corners keep a crisp edge
-    that a plain CSS border cannot follow.
+    The only thing that moves once the page is at rest: whatever is executing
+    right now. Everything else earns attention through contrast.
   */
-  .hud-clip {
-    clip-path: polygon(
-      0 12px,
-      12px 0,
-      calc(100% - 12px) 0,
-      100% 12px,
-      100% calc(100% - 12px),
-      calc(100% - 12px) 100%,
-      12px 100%,
-      0 calc(100% - 12px)
-    );
+  .live {
+    animation: breathe 2.4s ease-in-out infinite;
   }
 
-  .hud-clip-sm {
-    clip-path: polygon(
-      0 6px,
-      6px 0,
-      calc(100% - 6px) 0,
-      100% 6px,
-      100% calc(100% - 6px),
-      calc(100% - 6px) 100%,
-      6px 100%,
-      0 calc(100% - 6px)
-    );
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.42;
+    }
   }
-}
 
-/* --------------------------------------------------------------- motion --- */
+  /* Entry. Things settle into place rather than appearing. */
+  .settle {
+    animation: settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
 
-/* One orchestrated power-on cascade; rows carry their own --i. */
-@keyframes hud-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scaleY(0.985);
-    filter: brightness(2.2);
+  @keyframes settle {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
-  to {
-    opacity: 1;
-    transform: none;
-    filter: none;
-  }
-}
 
-.rise {
-  animation: hud-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--i, 0) * 55ms);
-}
+  /* A hairline that fades at both ends, for separating without boxing in. */
+  .rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-hair-lit) 12%, var(--color-hair-lit) 88%, transparent);
+  }
 
-/* Beam traversing an active axis. */
-@keyframes sweep {
-  from {
-    transform: translateX(-120%);
-  }
-  to {
-    transform: translateX(420%);
-  }
-}
-
-.sweep::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 28%;
-  background: linear-gradient(90deg, transparent, var(--color-cyan), transparent);
-  animation: sweep 1.9s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-@keyframes pulse-dot {
-  0%,
-  100% {
-    opacity: 1;
-    filter: brightness(1.35);
-  }
-  50% {
-    opacity: 0.3;
-    filter: brightness(0.8);
-  }
-}
-
-.pulse {
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-/* Slow scan drifting down the viewport - the room is being read. */
-@keyframes scanline {
-  from {
-    transform: translateY(-30vh);
-  }
-  to {
-    transform: translateY(130vh);
-  }
-}
-
-.scanline {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 26vh;
-  z-index: 1;
-  pointer-events: none;
-  background: linear-gradient(180deg, transparent, rgba(34, 217, 255, 0.05), transparent);
-  animation: scanline 9s linear infinite;
-}
-
-/* Ring gauges draw themselves once on load. */
-@keyframes ring-draw {
-  from {
-    stroke-dashoffset: var(--circumference);
-  }
-}
-
-.ring-draw {
-  animation: ring-draw 1.4s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: 0.25s;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rise,
-  .sweep::after,
-  .pulse,
-  .scanline,
-  .ring-draw {
-    animation: none;
-  }
-  .rise {
-    opacity: 1;
-    transform: none;
-    filter: none;
-  }
-  .scanline {
-    display: none;
-  }
-}
-
-/* Reactor rings on the briefing view. Decorative; disabled with reduced motion. */
-@keyframes reactor-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 0.12;
+  .focusable:focus-visible {
+    outline: 1px solid var(--color-signal);
+    outline-offset: 2px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [style*="reactor-pulse"] {
+  .settle,
+  .live {
     animation: none !important;
   }
 }

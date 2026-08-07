@@ -8,7 +8,7 @@ import {
   type BriefingSegment,
 } from "@clarvis/core/briefing";
 import { useVoice } from "../useVoice";
-import { Hud, Label, SeverityChip, stagger } from "./primitives";
+import { Label, Panel, SeverityChip, settle } from "./primitives";
 
 /**
  * The morning view.
@@ -24,8 +24,8 @@ import { Hud, Label, SeverityChip, stagger } from "./primitives";
 
 const TONE: Record<BriefingSegment["tone"], string> = {
   neutral: "var(--color-muted)",
-  good: "var(--color-green)",
-  warn: "var(--color-amber)",
+  good: "var(--color-good)",
+  warn: "var(--color-attend)",
   bad: "var(--color-sev-critical)",
 };
 
@@ -39,7 +39,7 @@ const COMMANDS = [
 
 /** Concentric rings that react to speaking or listening. Purely decorative. */
 function Reactor({ active, listening }: { active: boolean; listening: boolean }) {
-  const color = listening ? "var(--color-amber)" : "var(--color-cyan)";
+  const color = listening ? "var(--color-attend)" : "var(--color-signal)";
   return (
     <div className="relative size-[112px] shrink-0" aria-hidden>
       {[0, 1, 2].map((i) => (
@@ -123,37 +123,37 @@ export function Briefing({
 
   const statusColor = {
     "no-data": "var(--color-dim)",
-    clear: "var(--color-green)",
-    attention: "var(--color-amber)",
+    clear: "var(--color-good)",
+    attention: "var(--color-attend)",
     blocked: "var(--color-sev-critical)",
   }[briefing.status];
 
   return (
     <section className="px-8 pt-8 pb-10">
-      <div className="rise flex flex-wrap items-start gap-8" style={stagger(0)}>
+      <div className="settle flex flex-wrap items-start gap-8" style={settle(0)}>
         <Reactor active={voice.speaking || voice.listening} listening={voice.listening} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="hud-type glow text-[13px]" style={{ color: statusColor, letterSpacing: "0.3em" }}>
+            <span className="text-[13px]" style={{ color: statusColor, letterSpacing: "0.3em" }}>
               {briefing.status.toUpperCase().replace("-", " ")}
             </span>
             {/* The rule only earns its space when there is room for it. */}
-            <span className="hidden h-px flex-1 sm:block" style={{ background: "var(--color-edge)" }} />
+            <span className="hidden h-px flex-1 sm:block" style={{ background: "var(--color-hair)" }} />
             {briefing.runId && (
-              <span className="label max-w-full truncate" title={briefing.runId}>
+              <span className="lbl max-w-full truncate" title={briefing.runId}>
                 {briefing.runId}
               </span>
             )}
           </div>
 
           <h1
-            className="hud-type mt-3 text-[38px] leading-[1.05] uppercase"
+            className="mt-3 text-[38px] leading-[1.05] uppercase"
             style={{ color: "var(--color-bright)" }}
           >
             {briefing.greeting}
           </h1>
-          <p className="hud-type mt-1 text-[19px] uppercase" style={{ color: statusColor }}>
+          <p className="mt-1 text-[19px] uppercase" style={{ color: statusColor }}>
             {briefing.headline}
           </p>
 
@@ -161,11 +161,11 @@ export function Briefing({
             <button
               onClick={() => (voice.speaking ? voice.stopSpeaking() : say(briefing.spoken))}
               disabled={!voice.canSpeak}
-              className="hud-clip-sm label px-4 py-2 transition-colors disabled:opacity-40"
+              className="lbl px-4 py-2 transition-colors disabled:opacity-40"
               style={{
-                color: voice.speaking ? "var(--color-void)" : "var(--color-cyan)",
-                background: voice.speaking ? "var(--color-cyan)" : "transparent",
-                border: "1px solid var(--color-cyan)",
+                color: voice.speaking ? "var(--color-ink-000)" : "var(--color-signal)",
+                background: voice.speaking ? "var(--color-signal)" : "transparent",
+                border: "1px solid var(--color-signal)",
               }}
             >
               {voice.speaking ? "Stop" : "Brief me"}
@@ -174,11 +174,11 @@ export function Briefing({
             <button
               onClick={() => (voice.listening ? voice.stopListening() : voice.listen())}
               disabled={!voice.canListen}
-              className="hud-clip-sm label flex items-center gap-2 px-4 py-2 transition-colors disabled:opacity-40"
+              className="lbl flex items-center gap-2 px-4 py-2 transition-colors disabled:opacity-40"
               style={{
-                color: voice.listening ? "var(--color-void)" : "var(--color-amber)",
-                background: voice.listening ? "var(--color-amber)" : "transparent",
-                border: "1px solid var(--color-amber)",
+                color: voice.listening ? "var(--color-ink-000)" : "var(--color-attend)",
+                background: voice.listening ? "var(--color-attend)" : "transparent",
+                border: "1px solid var(--color-attend)",
               }}
               title={voice.canListen ? "Ask a question out loud" : "This browser cannot do speech recognition"}
             >
@@ -190,7 +190,7 @@ export function Briefing({
               {voice.listening ? "Listening" : "Ask"}
             </button>
 
-            <button onClick={onOpenRun} className="hud-clip-sm label px-4 py-2" style={{ border: "1px solid var(--color-edge-hi)" }}>
+            <button onClick={onOpenRun} className="lbl px-4 py-2" style={{ border: "1px solid var(--color-hair-lit)" }}>
               Full run
             </button>
           </div>
@@ -201,8 +201,8 @@ export function Briefing({
               <button
                 key={c.intent}
                 onClick={() => say(answerIntent(c.intent, briefing))}
-                className="label px-2.5 py-1 transition-colors hover:text-[var(--color-cyan)]"
-                style={{ border: "1px solid var(--color-edge)", color: "var(--color-dim)", fontSize: "9.5px" }}
+                className="lbl px-2.5 py-1 transition-colors hover:text-[var(--color-signal)]"
+                style={{ border: "1px solid var(--color-hair)", color: "var(--color-dim)", fontSize: "9.5px" }}
               >
                 {c.label}
               </button>
@@ -226,10 +226,10 @@ export function Briefing({
             <button
               onClick={() => setAddress(address === "formal" ? "plain" : "formal")}
               aria-pressed={address === "formal"}
-              className="label px-2.5 py-1 transition-colors"
+              className="lbl px-2.5 py-1 transition-colors"
               style={{
-                border: `1px solid ${address === "formal" ? "var(--color-cyan)" : "var(--color-edge)"}`,
-                color: address === "formal" ? "var(--color-cyan)" : "var(--color-dim)",
+                border: `1px solid ${address === "formal" ? "var(--color-signal)" : "var(--color-hair)"}`,
+                color: address === "formal" ? "var(--color-signal)" : "var(--color-dim)",
                 fontSize: "9.5px",
               }}
             >
@@ -241,9 +241,9 @@ export function Briefing({
 
       {/* What was heard and what was said, always visible as text. */}
       {(heard || voice.transcript || voice.error) && (
-        <div className="rise mt-6" style={stagger(1)}>
+        <div className="settle mt-6" style={settle(1)}>
           {(voice.transcript || heard) && (
-            <p className="text-[12px]" style={{ color: "var(--color-amber)" }}>
+            <p className="text-[12px]" style={{ color: "var(--color-attend)" }}>
               <span className="label" style={{ display: "inline", marginRight: 8 }}>
                 heard
               </span>
@@ -258,7 +258,7 @@ export function Briefing({
         </div>
       )}
 
-      <Hud className="rise mt-6" tone="var(--color-edge)" style={stagger(2)}>
+      <Panel className="settle mt-6" style={settle(2)}>
         <div className="px-5 py-4">
           <Label>briefing</Label>
           {/* aria-live so a screen reader announces answers as they change. */}
@@ -270,14 +270,14 @@ export function Briefing({
             {spokenText || briefing.spoken}
           </p>
         </div>
-      </Hud>
+      </Panel>
 
       <ul className="mt-4 grid gap-2 sm:grid-cols-2">
         {briefing.segments.map((segment, i) => (
           <li
             key={segment.label}
-            className="rise flex gap-3 px-4 py-3"
-            style={{ ...stagger(i + 3), border: "1px solid var(--color-edge)", background: "var(--color-panel)" }}
+            className="settle flex gap-3 px-4 py-3"
+            style={{ ...settle(i + 3), border: "1px solid var(--color-hair)", background: "var(--color-ink-100)" }}
           >
             <span
               className="mt-[6px] block size-2 shrink-0 rotate-45"
@@ -295,14 +295,14 @@ export function Briefing({
       </ul>
 
       {briefing.needsAttention.length > 0 && (
-        <div className="rise mt-6" style={stagger(9)}>
-          <Label style={{ color: "var(--color-amber)" }}>needs you</Label>
+        <div className="settle mt-6" style={settle(9)}>
+          <Label style={{ color: "var(--color-attend)" }}>needs you</Label>
           <ul className="mt-2 space-y-1.5">
             {briefing.needsAttention.map((f) => (
               <li
                 key={f.id}
                 className="flex items-start gap-3 px-4 py-2.5"
-                style={{ border: "1px solid var(--color-edge)", background: "var(--color-panel)" }}
+                style={{ border: "1px solid var(--color-hair)", background: "var(--color-ink-100)" }}
               >
                 <span className="mt-[3px]">
                   <SeverityChip severity={f.severity} />

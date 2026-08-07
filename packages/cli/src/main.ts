@@ -1191,6 +1191,44 @@ async function gradeFindings(opts: {
   }
 }
 
+/**
+ * Stamp where the run has got to, and persist it.
+ *
+ * Written to disk on every transition rather than only at the end, because the
+ * dashboard reads the same file a finished run leaves behind - so a run in
+ * flight becomes visible without a second channel to keep working. Best effort:
+ * a failed status write must never take down the run it was describing.
+ */
+async function markStage(
+  projectRoot: string,
+  run: Run,
+  key: string,
+  label: string,
+): Promise<void> {
+  const now = Date.now();
+  const previous = run.stage;
+
+  run.stage = {
+    key,
+    label,
+    startedAt: new Date(now).toISOString(),
+    done: [
+      ...(previous?.done ?? []),
+      ...(previous
+        ? [
+            {
+              key: previous.key,
+              label: previous.label,
+              ms: now - new Date(previous.startedAt).getTime(),
+            },
+          ]
+        : []),
+    ],
+  };
+
+  await writeRun(projectRoot, run).catch(() => {});
+}
+
 async function runCommand(opts: {
   projectRoot: string;
   profilePath?: string;
@@ -1387,6 +1425,8 @@ async function runCommand(opts: {
     return;
   }
 
+  await markStage(projectRoot, run, "context", "reading requirements");
+
   /* --- 2. Gather the context the plan and the specs are written from ------- */
 
   let context: FeatureContext | undefined;
@@ -1449,6 +1489,8 @@ async function runCommand(opts: {
   }
 
   const specsByAxis = new Map<Axis, AuthoredSpec>();
+
+  await markStage(projectRoot, run, "boot", "starting the application");
 
   /* --- 3. Boot, and refuse to test an app we cannot prove is up ------------ */
 
@@ -1531,6 +1573,8 @@ async function runCommand(opts: {
     return;
   }
 
+  await markStage(projectRoot, run, "surface", "logging in and mapping the pages");
+
   /* --- 3c. Log in, and look at the real pages ------------------------------ */
 
   // Everything below needs the application up, which is why authoring moved
@@ -1601,6 +1645,12 @@ async function runCommand(opts: {
       discoveredBy: surface.discoveredBy,
       mappedAt: new Date().toISOString(),
     };
+
+    // Persisted, not just held for this run. Mapping costs a browser and a
+    // visit per route, and throwing the result away meant paying for it every
+    // time while the dashboard - which reads the profile, not the run - showed
+    // a project with no routes at all.
+    await writeFile(paths.profile, JSON.stringify(profile, null, 2), "utf8").catch(() => {});
   }
   for (const w of surface.warnings) {
     run.truncation!.push(w);
@@ -1636,6 +1686,8 @@ async function runCommand(opts: {
     for (const s of prepared.skipped) console.log(`  data     skipped ${s.command.script}: ${s.reason}`);
     if (!prepared.targetCheck.ok) console.log(`  data     ${prepared.targetCheck.reason}`);
   }
+
+  await markStage(projectRoot, run, "author", "writing the specs");
 
   /* --- 3e. Author, now against an application that is actually running ----- */
 
@@ -1679,6 +1731,8 @@ async function runCommand(opts: {
     recordAgentRuns(run, crucible.agentRuns);
     console.log(`  author   ${spendLabel(crucible.usdEstimate)}`);
   }
+
+  await markStage(projectRoot, run, "execute", "running the tests");
 
   /* --- 4. Axes, each in its own browser process ---------------------------- */
 
@@ -1779,6 +1833,8 @@ async function runCommand(opts: {
     throw e;
   }
 
+  await markStage(projectRoot, run, "triage", "trying to reproduce each failure");
+
   /* --- 5. Triage: try to make each finding go away ------------------------- */
 
   // Runs before teardown: reproducing a failure needs the app up. Whatever
@@ -1832,6 +1888,8 @@ async function runCommand(opts: {
     if (a.status === "skipped")
       run.truncation!.push(`${a.key}: ${a.skipReason}`);
   }
+
+  await markStage(projectRoot, run, "deliver", "drafting tickets and judging the release");
 
   /* --- DISPATCH and CLEARANCE: what happens to what we found --------------- */
 
@@ -1899,6 +1957,10 @@ async function runCommand(opts: {
 
   run.findings = applied.reported;
   await saveLedger(projectRoot, recordRun(ledgerBefore, run));
+
+  // Close the last stage out, so a finished run does not read as one still
+  // sitting in whatever step it happened to end on.
+  await markStage(projectRoot, run, "done", "finished");
 
   const file = await writeRun(projectRoot, run);
 

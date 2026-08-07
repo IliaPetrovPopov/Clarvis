@@ -1,101 +1,123 @@
-import type { Run } from "@clarvis/core/types";
-import { Dot, Label, Meter, stagger } from "./primitives";
+import type { AxisRun, Run } from "@clarvis/core/types";
+import { Bar, Dot, Label, Mono, settle } from "./primitives";
 
 /**
- * Per-axis results for one run.
+ * One row per axis, because an axis is the unit a person reasons in.
  *
- * This used to live in the navigation rail, which meant the rail's meaning
- * changed depending on which view was open. It belongs to a run, so it sits
- * with the run.
+ * The old version was three cards in a row that showed a title, a status word
+ * and three counts. The counts were the useful part and they were the smallest
+ * thing on it. Here the numbers lead, the proportion is drawn, and a skipped
+ * axis carries the reason it was skipped on the same line - previously that
+ * reason existed only in a list at the bottom of the page, which is a long way
+ * from the thing it explains.
  */
-const STATUS_COLOR: Record<string, string> = {
-  pending: "var(--color-dim)",
-  running: "var(--color-cyan)",
-  done: "var(--color-green)",
-  skipped: "var(--color-amber)",
-  error: "var(--color-sev-critical)",
+
+const STATUS: Record<AxisRun["status"], { tone: string; text: string }> = {
+  done: { tone: "var(--color-good)", text: "ran" },
+  running: { tone: "var(--color-signal)", text: "running" },
+  pending: { tone: "var(--color-dim)", text: "queued" },
+  skipped: { tone: "var(--color-ink-500)", text: "not run" },
+  error: { tone: "var(--color-sev-critical)", text: "errored" },
 };
 
-export function AxisStrip({ run }: { run: Run }) {
-  if (!run.axes.length) return null;
+function AxisRow({ axis, index }: { axis: AxisRun; index: number }) {
+  const r = axis.results;
+  const status = STATUS[axis.status] ?? STATUS.pending;
+  const failed = r?.failed ?? 0;
+  const skippedAxis = axis.status === "skipped";
 
-  const cost = (run.agentRuns ?? []).reduce((sum, a) => sum + (a.usdEstimate ?? 0), 0);
+  const executed = (r?.passed ?? 0) + (r?.failed ?? 0) + (r?.skipped ?? 0);
 
   return (
-    <section className="rise px-8 pb-2" style={stagger(3)}>
-      <div className="flex items-baseline justify-between">
-        <Label>axes</Label>
-        {cost > 0 && (
-          <span className="text-[10.5px]" style={{ color: "var(--color-dim)" }}>
-            {(run.agentRuns ?? []).length} agents · ${cost.toFixed(2)}
+    <li className="settle px-4 py-2.5" style={settle(index)}>
+      {/*
+        Fixed columns, left-packed rather than stretched edge to edge.
+
+        Name at one end and figure at the other makes an eye cross the panel to
+        pair two things that belong together, and a meter that spans the full
+        width stops reading as a meter and starts reading as a rule. A compact
+        cluster with whitespace after it is how an instrument is laid out, and
+        fixed columns line the numbers up down the list - which is the whole
+        reason to set them in a tabular face.
+      */}
+      <div className="grid grid-cols-[10px_164px_180px_auto_54px] items-center gap-x-5">
+        <Dot color={failed ? "var(--color-attend)" : status.tone} live={axis.status === "running"} />
+
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span
+            className="truncate text-[13px]"
+            style={{
+              color: skippedAxis ? "var(--color-dim)" : "var(--color-body)",
+              fontWeight: 500,
+            }}
+          >
+            {axis.key}
           </span>
-        )}
+          {axis.status !== "done" && <Label tone={status.tone}>{status.text}</Label>}
+        </div>
+
+        <div>
+          {executed > 0 && (
+            <Bar
+              height={3}
+              parts={[
+                { value: r?.passed ?? 0, color: "var(--color-good)", title: `${r?.passed} passed` },
+                { value: r?.failed ?? 0, color: "var(--color-attend)", title: `${r?.failed} failed` },
+                { value: r?.skipped ?? 0, color: "var(--color-ink-400)", title: `${r?.skipped} skipped` },
+              ]}
+            />
+          )}
+        </div>
+
+        <div className="readout text-right text-[14px]" style={{ fontWeight: 500 }}>
+          {r ? (
+            <>
+              <span style={{ color: "var(--color-good)" }}>{r.passed ?? 0}</span>
+              <span style={{ color: "var(--color-ink-500)" }}> / </span>
+              <span style={{ color: failed ? "var(--color-attend)" : "var(--color-dim)" }}>{failed}</span>
+            </>
+          ) : (
+            <span style={{ color: "var(--color-ink-500)" }}>--</span>
+          )}
+        </div>
+
+        <div className="text-right">
+          {r?.durationMs ? <Mono tone="var(--color-dim)">{(r.durationMs / 1000).toFixed(0)}s</Mono> : null}
+        </div>
       </div>
 
-      <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {run.axes.map((axis) => {
-          const color = STATUS_COLOR[axis.status] ?? "var(--color-dim)";
-          const r = axis.results;
-          const attention = axis.status === "skipped" || axis.status === "error";
+      {/* The reason lives with the thing it explains, not in a footnote at the
+          bottom of the page. */}
+      {skippedAxis && axis.skipReason && (
+        <p className="prose mt-1 pl-[26px] text-[11.5px]" style={{ color: "var(--color-dim)" }}>
+          {axis.skipReason}
+        </p>
+      )}
+    </li>
+  );
+}
 
-          return (
-            <li
-              key={axis.key}
-              className="px-3 py-2.5"
-              style={{
-                border: `1px solid ${attention ? `color-mix(in srgb, ${color} 45%, transparent)` : "var(--color-edge)"}`,
-                background: "var(--color-panel)",
-              }}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Dot color={color} pulsing={axis.status === "running"} />
-                  <span
-                    className="hud-type truncate text-[12px] uppercase"
-                    style={{ color: "var(--color-body)", letterSpacing: "0.06em" }}
-                  >
-                    {axis.key}
-                  </span>
-                </span>
-                <span className="label shrink-0" style={{ color, fontSize: "9px" }}>
-                  {axis.status}
-                </span>
-              </div>
+export function AxisStrip({ run }: { run: Run }) {
+  const axes = run.axes ?? [];
+  if (!axes.length) return null;
 
-              {r && (
-                <>
-                  <div className="mt-2">
-                    <Meter
-                      height={2}
-                      segments={[
-                        { value: r.passed ?? 0, color: "var(--color-cyan-dim)", title: `${r.passed} passed` },
-                        { value: r.failed ?? 0, color: "var(--color-sev-high)", title: `${r.failed} failed` },
-                        { value: r.skipped ?? 0, color: "var(--color-amber)", title: `${r.skipped} skipped` },
-                      ]}
-                    />
-                  </div>
-                  <div className="mt-1.5 flex gap-2.5 text-[10px]" style={{ color: "var(--color-dim)" }}>
-                    <span>{r.passed ?? 0} pass</span>
-                    <span style={{ color: r.failed ? "var(--color-sev-high)" : undefined }}>
-                      {r.failed ?? 0} fail
-                    </span>
-                    {/* A skipped spec is an unanswered question, never a pass. */}
-                    <span style={{ color: r.skipped ? "var(--color-amber)" : undefined }}>
-                      {r.skipped ?? 0} skip
-                    </span>
-                  </div>
-                </>
-              )}
+  const ran = axes.filter((a) => a.status === "done").length;
 
-              {attention && axis.skipReason && (
-                <p className="mt-1.5 text-[10px] leading-snug" style={{ color }}>
-                  {axis.skipReason.length > 110 ? `${axis.skipReason.slice(0, 110)}...` : axis.skipReason}
-                </p>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+  return (
+    <div className="px-5 pt-6 lg:px-8">
+      <section className="surface">
+        <header className="flex items-baseline gap-3 px-4 pt-3.5 pb-1">
+          <Label>axes</Label>
+          <span className="ml-auto readout text-[11px]" style={{ color: "var(--color-dim)" }}>
+            {ran} of {axes.length} ran
+          </span>
+        </header>
+        <ul className="divide-y" style={{ borderColor: "var(--color-hair)" }}>
+          {axes.map((a, i) => (
+            <AxisRow key={a.key} axis={a} index={i} />
+          ))}
+        </ul>
+      </section>
+    </div>
   );
 }

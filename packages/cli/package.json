@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "CLARVIS_HOME=$(mktemp -d)/clarvis-test node --experimental-strip-types --test test/*.test.ts"
   },
   "dependencies": {
     "@clarvis/core": "workspace:*",

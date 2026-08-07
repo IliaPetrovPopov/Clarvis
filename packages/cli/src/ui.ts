@@ -7,12 +7,36 @@ import {
   FLEETS,
   FLEET_KEYS,
   addProject,
+  clarvisPaths,
   describeProjects,
   listRunIds,
   readRun,
   resolveProject,
   type ProjectEntry,
 } from "@clarvis/core";
+
+/**
+ * Project-level artifacts the dashboard may read.
+ *
+ * An allow-list rather than a path parameter: this serves a name that arrived
+ * over the wire, and the store also holds transcripts, which contain retrieved
+ * text from the project under test and are nobody's business but the operator's.
+ */
+const ARTIFACTS = new Set(["profile.json", "context.json", "plan.json", "ledger.json"]);
+
+/** The same, for output written per run. */
+const RUN_ARTIFACTS = new Set(["drafts.json", "verdict.json", "differential.json"]);
+
+/**
+ * Bumped whenever the API gains or changes an endpoint the UI depends on.
+ *
+ * The bundle records the number it was built against; a page whose number is
+ * higher than the server's is talking to a process that predates it and says
+ * so, rather than failing one fetch at a time.
+ */
+export const API_CONTRACT = 2;
+
+const STARTED_AT = new Date().toISOString();
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -111,6 +135,24 @@ export async function serveUi(
           );
         }
 
+        /*
+          GET /api/health - what this server is, so the page can tell.
+
+          Node loads server code into memory at start and serves the frontend
+          from disk on every request, so a long-lived `clarvis ui` ends up
+          pairing a months-old API with a bundle built minutes ago. The
+          mismatch shows up as a 404 on an endpoint the page is certain
+          exists, which is a silent failure of exactly the kind everything
+          else here is built to prevent - so the page is given the means to
+          notice and say so.
+        */
+        if (parts[1] === "health" && parts.length === 2) {
+          return json(res, 200, {
+            api: API_CONTRACT,
+            startedAt: STARTED_AT,
+          });
+        }
+
         // GET /api/projects
         if (parts[1] === "projects" && parts.length === 2) {
           return json(res, 200, await describeProjects());
@@ -123,6 +165,73 @@ export async function serveUi(
 
           if (parts[3] === "runs" && parts.length === 4) {
             return json(res, 200, await listRunIds(project.path));
+          }
+
+          /*
+            GET /api/projects/:id/artifact/:name
+
+            Everything a run produces that is not run.json. Four of the six
+            teams wrote their output to a file nothing served, so DISPATCH's
+            tickets and CLEARANCE's verdict - two whole fleets - could not be
+            read anywhere but the terminal. The others hold what a reader needs
+            to judge a result at all: the requirements a finding cites, the plan
+            that says what was deliberately not tested, and the route map that
+            says how much of the application was ever looked at.
+          */
+          if (parts[3] === "artifact" && parts[4]) {
+            const name = decodeURIComponent(parts[4]);
+            if (!ARTIFACTS.has(name)) {
+              return json(res, 404, { error: `Not an artifact: "${name}".` });
+            }
+            const paths = clarvisPaths(project.path);
+            try {
+              const raw = await readFile(path.join(paths.root, name), "utf8");
+              return json(res, 200, JSON.parse(raw));
+            } catch {
+              // Absent is a real state - a project that never ran research has
+              // no context - so it is reported as such rather than as an error.
+              return json(res, 404, { error: `No ${name} in this project yet.`, absent: true });
+            }
+          }
+
+          /* GET /api/projects/:id/run/:runId/artifact/:name - per-run output. */
+          if (parts[3] === "run" && parts[4] && parts[5] === "artifact" && parts[6]) {
+            const name = decodeURIComponent(parts[6]);
+            if (!RUN_ARTIFACTS.has(name)) {
+              return json(res, 404, { error: `Not a run artifact: "${name}".` });
+            }
+            const paths = clarvisPaths(project.path);
+            const file = path.join(paths.root, "runs", decodeURIComponent(parts[4]), name);
+            try {
+              return json(res, 200, JSON.parse(await readFile(file, "utf8")));
+            } catch {
+              return json(res, 404, { error: `No ${name} for this run.`, absent: true });
+            }
+          }
+
+          /*
+            GET /api/projects/:id/spec/:file - the authored spec source.
+
+            A finding cites a spec file and a reader had no way to see it
+            without leaving for a terminal. Confined to the scratch directory
+            and to one extension, because this serves a path that came in over
+            the wire.
+          */
+          if (parts[3] === "spec" && parts[4]) {
+            const paths = clarvisPaths(project.path);
+            const wanted = path.basename(decodeURIComponent(parts[4]));
+            if (!wanted.endsWith(".spec.ts")) {
+              return json(res, 400, { error: "Only .spec.ts files are served." });
+            }
+            const file = path.join(paths.scratch, wanted);
+            if (!file.startsWith(paths.scratch)) {
+              return json(res, 400, { error: "Outside the scratch directory." });
+            }
+            try {
+              return json(res, 200, { file: wanted, source: await readFile(file, "utf8") });
+            } catch {
+              return json(res, 404, { error: `No spec named ${wanted}.`, absent: true });
+            }
           }
 
           if (parts[3] === "run" && parts[4]) {
