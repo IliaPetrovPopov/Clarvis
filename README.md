@@ -203,6 +203,32 @@ anything less would make the check green by never reaching the interesting
 part. `--live` calls the real agents, for a change that alters what one is
 asked to do.
 
+## When there is no account to test with
+
+Recon looks for credentials in seed files and fixtures. Often that works; on a
+real application it frequently does not, and then every route behind a login is
+untestable. Provisioning a database made it worse rather than better - a fresh
+database is empty, so the sandbox meant to unlock the mutating axes handed the
+fleet an application with no users at all.
+
+So the fleet registers one, through the application's own signup form.
+
+Not by writing to the database. A user is not a row: it is a row plus a hash
+with the right cost factor, plus a tenant key, plus whatever the application
+does on creation. Reading the models and inserting a record means reproducing
+every invariant by hand, and getting one wrong produces an account that exists
+and cannot do anything - which then fails tests in ways that look like product
+defects. The signup form already knows all of it, and it is the one path that
+needs no knowledge of the stack.
+
+Creating an account is a write, so the guard decides. The identity carries the
+fixture prefix and a random tail, and it is proven by logging in with it
+afterwards rather than by the form appearing to submit.
+
+**Signup grants whatever role signup grants**, which is the lowest one. An admin
+cannot be made this way, and the run says so rather than guessing at an
+elevation route and quietly testing the wrong thing.
+
 ## Lessons: the fleet learning from itself
 
 Two signals were being thrown away at the end of every run. The gate refuses a

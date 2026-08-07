@@ -118,6 +118,8 @@ export interface Profile {
       source?: string;
       /** Contains a parameter, so it cannot be visited as written. */
       dynamic?: boolean;
+      /** What was actually requested, once known parameters were filled in. */
+      visitPath?: string;
       /** Where the browser ended up, when it differed from `path`. */
       landedOn?: string;
       status?: number;

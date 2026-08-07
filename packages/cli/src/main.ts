@@ -10,6 +10,7 @@ import {
   decideGuard,
   applyGuardToAxes,
   provisionSandbox,
+  enrolRole,
   loadLessons,
   saveLessons,
   learnFromRun,
@@ -1698,6 +1699,33 @@ async function runCommand(opts: {
   // browser built from it; one holding an accessibility snapshot transcribes it.
   // That difference is the largest single source of findings about the harness
   // rather than about the software.
+
+  /*
+    No usable credential means no authenticated route can be tested at all, and
+    a provisioned database makes that worse rather than better - it is empty,
+    so even the seed data a project ships is gone. Registering through the
+    application's own signup form is the one way in that needs no knowledge of
+    the stack, and it is still a write, so the guard decides.
+  */
+  if (!profile.auth.roles.some((r) => r.username && r.password)) {
+    const enrolled = await enrolRole({
+      profile,
+      sandbox,
+      log: (l) => console.log(`  enrol    ${l}`),
+    });
+
+    if (enrolled.ok && enrolled.role) {
+      profile.auth = { ...profile.auth, roles: [...profile.auth.roles, enrolled.role] };
+      run.truncation!.push(
+        `No credential was found, so an account was created at ${enrolled.via}. It has whatever ` +
+          `role signup grants - any role above that is still untested.`,
+      );
+      console.log(`  enrol    testing as a newly registered account, not an existing one`);
+    } else {
+      console.log(`  enrol    ${enrolled.reason}`);
+      run.truncation!.push(`No account could be created: ${enrolled.reason}`);
+    }
+  }
 
   const sessionResults = await establishSessions({
     profile,

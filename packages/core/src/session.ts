@@ -57,7 +57,7 @@ const PASSWORD = 'input[type="password"]';
  * guessing, which is where a field called "user_id" that holds something else
  * would otherwise be picked up.
  */
-const IDENTITY_SELECTORS = [
+export const IDENTITY_SELECTORS = [
   'input[autocomplete="username"]',
   'input[autocomplete="email"]',
   'input[type="email"]',
@@ -67,7 +67,20 @@ const IDENTITY_SELECTORS = [
   'input[id*="email" i]',
   'input[id*="user" i]',
   'input[type="text"]',
+  /*
+    An input with no type attribute at all.
+
+    `type` defaults to text, but `[type="text"]` is an attribute selector and
+    matches nothing when the attribute is absent - so a perfectly ordinary
+    `<input name="username">` fell through every rule above it and the form
+    looked like it had no identity field. Common enough in hand-written HTML
+    to be worth the last line.
+  */
+  "input:not([type])",
 ];
+
+/** The password field, exported so enrolment matches on exactly the same rule. */
+export const PASSWORD_SELECTOR = PASSWORD;
 
 /** Text that means "this attempt was refused", so we stop waiting early. */
 const REFUSAL = /invalid|incorrect|failed|wrong|not found|unauthor|denied|try again|does not match/i;

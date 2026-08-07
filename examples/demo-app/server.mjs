@@ -161,6 +161,71 @@ const server = createServer(async (req, res) => {
     return redirect(res, user ? `/notes${q}` : `/login${q}`);
   }
 
+  /* --------------------------------------------------------------- register */
+
+  /*
+    A signup form, so the fixture has the one path in that needs no prior
+    credential. Enrolment exists because a real application often ships none,
+    and a provisioned database is empty even when it does - so without this
+    there is no way to reach anything behind a login, and the demo app could
+    not exercise the step at all.
+
+    Deliberately grants the lowest role. Signup is not how anyone becomes an
+    admin, and a fixture that pretended otherwise would let a bug through.
+  */
+  if (url.pathname === "/register" && req.method === "GET") {
+    return send(
+      res,
+      200,
+      page(
+        t,
+        `<form method="post" action="/register${q}">
+           <label>Email<input name="email" type="email" data-testid="email" autocomplete="email"></label>
+           <label>Name<input name="name" data-testid="name" autocomplete="name"></label>
+           <label>Password<input name="password" type="password" data-testid="password" autocomplete="new-password"></label>
+           <label>Confirm<input name="confirm" type="password" data-testid="confirm" autocomplete="new-password"></label>
+           <button type="submit" data-testid="submit">Create account</button>
+         </form>`,
+        { locale },
+      ),
+    );
+  }
+
+  if (url.pathname === "/register" && req.method === "POST") {
+    const body = await readBody(req);
+    const email = (body.get("email") ?? "").trim();
+    const password = body.get("password") ?? "";
+
+    const problem =
+      !email || !email.includes("@")
+        ? "A valid email is required."
+        : password.length < 8
+          ? "The password must be at least 8 characters."
+          : password !== (body.get("confirm") ?? "")
+            ? "The passwords do not match."
+            : users.has(email)
+              ? "That account already exists."
+              : undefined;
+
+    if (problem) {
+      return send(res, 400, page(t, `<p role="alert">${escape(problem)}</p>`, { locale }));
+    }
+
+    users.set(email, {
+      username: email,
+      password,
+      role: "viewer",
+      name: (body.get("name") ?? "").trim() || "New user",
+    });
+
+    // Signed in on creation, as most applications do. Same cookie shape as
+    // login, seeded bug included - the fixture must not be quietly safer on
+    // one path than the other.
+    const sid = randomUUID();
+    sessions.set(sid, email);
+    return redirect(res, `/notes${q}`, { "set-cookie": `sid=${sid}; Path=/; SameSite=Lax` });
+  }
+
   /* ------------------------------------------------------------------ login */
 
   if (url.pathname === "/login" && req.method === "GET") {

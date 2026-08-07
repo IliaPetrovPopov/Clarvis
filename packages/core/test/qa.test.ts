@@ -508,3 +508,49 @@ test("data commands run against the sandbox, not the project's own database", as
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+/* ---------------------------------------------------------------- enrolment */
+
+test("an input with no type attribute is still an identity field", async () => {
+  /*
+    `type` defaults to text, but `[type="text"]` is an attribute selector and
+    matches nothing when the attribute is absent. A plain
+    `<input name="username">` therefore fell through every rule, and enrolment
+    created a real account and then reported it could not log in - the field
+    was found by one copy of the rules and missed by another.
+  */
+  const { IDENTITY_SELECTORS } = await import("../src/session.ts");
+  assert.ok(
+    IDENTITY_SELECTORS.includes("input:not([type])"),
+    "a typeless input must be matchable",
+  );
+});
+
+test("a created identity is disposable, unique, and obviously ours", async () => {
+  const { generateIdentity } = await import("../src/enrol.ts");
+  const profile = profileWith({ data: { disposable: true, safeTargets: [], fixturePrefix: "clarvis-" } });
+
+  const a = generateIdentity(profile, 0.1);
+  const b = generateIdentity(profile, 0.9);
+
+  assert.match(a.username, /^clarvis-/, "the fixture prefix makes it sweepable");
+  assert.match(a.username, /@example\.invalid$/, "a reserved domain that can never receive mail");
+  assert.notEqual(a.username, b.username, "two runs must not collide on a surviving database");
+  assert.ok(a.password.length >= 12, "short passwords are refused by real policies");
+  assert.match(a.password, /[A-Z]/, "mixed case, for the same reason");
+  assert.match(a.password, /[^A-Za-z0-9]/, "and a symbol");
+});
+
+test("creating an account is a write, so the guard decides", async () => {
+  // Registering is not a read. Whatever the reason for wanting an account, a
+  // project nobody vouched for does not get one made in it.
+  const { enrolRole } = await import("../src/enrol.ts");
+
+  const result = await enrolRole({
+    profile: profileWith({ data: { disposable: false, safeTargets: [] } }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason ?? "", /read-only/);
+  assert.match(result.reason ?? "", /behind a login stays untested/);
+});
