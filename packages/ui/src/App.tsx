@@ -3,6 +3,7 @@ import type { Run } from "@clarvis/core/types";
 import { loadProjects, loadRunsFor, loadFixture, type Project } from "./data";
 import { RunHeader } from "./components/RunHeader";
 import { Findings } from "./components/Findings";
+import { Pipeline } from "./components/Pipeline";
 import { Briefing } from "./components/Briefing";
 import { AxisStrip } from "./components/AxisStrip";
 import { Sidebar, type View } from "./components/Sidebar";
@@ -55,24 +56,39 @@ export default function App() {
     };
   }, []);
 
-  /* Runs, whenever the project changes. */
+  /* Runs, whenever the project changes - and again while one is in flight. */
   useEffect(() => {
     if (!activeId) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setLoading(true);
     localStorage.setItem(LAST_PROJECT_KEY, activeId);
 
-    void (async () => {
+    // A run takes minutes and writes its record as it goes, so a dashboard that
+    // reads once shows a stale picture for the whole of it - and, worse, shows
+    // nothing at all for a run that is currently happening. Polling is enough
+    // here: the file is local, the payload is small, and a socket would be a
+    // second transport to keep working for no gain a reader would notice.
+    const poll = async (first: boolean): Promise<void> => {
       const runs = await loadRunsFor(activeId);
       if (cancelled) return;
+
       setLatest(runs.latest);
       setPrevious(runs.previous);
       setSource(runs.source);
-      setLoading(false);
-    })();
+      if (first) setLoading(false);
+
+      // Faster while something is happening, slow otherwise - so an idle
+      // dashboard left open all day costs almost nothing.
+      const active = runs.latest?.status === "running";
+      timer = setTimeout(() => void poll(false), active ? 3000 : 15_000);
+    };
+
+    void poll(true);
 
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [activeId]);
 
@@ -184,6 +200,9 @@ export default function App() {
             <>
               <RunHeader run={latest} source={source === "fixture" ? "fixture" : "live"} />
               <AxisStrip run={latest} />
+              {/* Before the findings: how far the run actually reached decides
+                  how much an empty findings list is worth. */}
+              <Pipeline run={latest} />
               <Findings run={latest} />
             </>
           )}

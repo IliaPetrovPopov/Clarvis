@@ -7,8 +7,20 @@
   "request": {
     "feature": "org/client scoping + RBAC",
     "brief": "Users can belong to multiple organizations. Within each org they may be a head user and may be granted specific clients. A Client Admin must never see or edit a System Admin. Assigned clients (what the admin ticked) are distinct from effective clients (derived access) - the UI must always render assigned.",
-    "axes": ["happy-path", "rbac-scope", "i18n-rtl"],
-    "profilePath": "fixtures/shared-db.profile.json"
+    "axes": [
+      "happy-path",
+      "rbac-scope",
+      "i18n-rtl"
+    ],
+    "profilePath": "fixtures/shared-db.profile.json",
+    "fleets": [
+      "recon",
+      "research",
+      "lead",
+      "qa",
+      "delivery",
+      "release"
+    ]
   },
   "guard": {
     "mode": "mutating",
@@ -17,7 +29,10 @@
     "reason": "Target localhost:8100 is a confirmed disposable backend (matched \"localhost:810*\").",
     "skippedAxes": []
   },
-  "boot": { "verified": true, "durationMs": 94120 },
+  "boot": {
+    "verified": true,
+    "durationMs": 94120
+  },
   "axes": [
     {
       "key": "happy-path",
@@ -25,8 +40,16 @@
       "agentId": "qa-happy-path-01",
       "startedAt": "2026-08-05T09:22:40.000Z",
       "finishedAt": "2026-08-05T09:29:12.000Z",
-      "specFiles": [".clarvis/scratch/qa-happy-path-org-assign.spec.ts"],
-      "results": { "passed": 7, "failed": 1, "skipped": 0, "flaky": 0, "durationMs": 391000 },
+      "specFiles": [
+        ".clarvis/scratch/qa-happy-path-org-assign.spec.ts"
+      ],
+      "results": {
+        "passed": 7,
+        "failed": 1,
+        "skipped": 0,
+        "flaky": 0,
+        "durationMs": 391000
+      },
       "artifactsDir": ".clarvis/runs/20260805T0921-3f9a1c/happy-path"
     },
     {
@@ -39,7 +62,13 @@
         ".clarvis/scratch/qa-rbac-scope-route-matrix.spec.ts",
         ".clarvis/scratch/qa-rbac-scope-api-idor.spec.ts"
       ],
-      "results": { "passed": 21, "failed": 2, "skipped": 0, "flaky": 1, "durationMs": 674000 },
+      "results": {
+        "passed": 21,
+        "failed": 2,
+        "skipped": 0,
+        "flaky": 1,
+        "durationMs": 674000
+      },
       "artifactsDir": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope"
     },
     {
@@ -48,8 +77,16 @@
       "agentId": "qa-i18n-rtl-01",
       "startedAt": "2026-08-05T09:22:41.000Z",
       "finishedAt": "2026-08-05T09:31:08.000Z",
-      "specFiles": [".clarvis/scratch/qa-i18n-rtl-org-picker.spec.ts"],
-      "results": { "passed": 34, "failed": 1, "skipped": 2, "flaky": 0, "durationMs": 506000 },
+      "specFiles": [
+        ".clarvis/scratch/qa-i18n-rtl-org-picker.spec.ts"
+      ],
+      "results": {
+        "passed": 34,
+        "failed": 1,
+        "skipped": 2,
+        "flaky": 0,
+        "durationMs": 506000
+      },
       "artifactsDir": ".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl"
     }
   ],
@@ -83,12 +120,22 @@
         "networkLogPath": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope/net-8c21ae.har",
         "exitCode": 1
       },
-      "determinism": { "runs": 3, "failures": 3, "verdict": "deterministic" },
-      "negativeControl": { "ran": true, "ref": "HEAD~1", "alsoFailed": true },
+      "determinism": {
+        "runs": 3,
+        "failures": 3,
+        "verdict": "deterministic"
+      },
+      "negativeControl": {
+        "ran": true,
+        "ref": "HEAD~1",
+        "alsoFailed": true
+      },
       "foundBy": "qa-rbac-scope-01",
       "verifiedBy": "qa-triage-01",
       "createdAt": "2026-08-05T09:34:02.000Z",
-      "tracker": { "status": "drafted" }
+      "tracker": {
+        "status": "drafted"
+      }
     },
     {
       "id": "f-1d55b0",
@@ -116,15 +163,27 @@
       "evidence": {
         "specFile": ".clarvis/scratch/qa-happy-path-org-assign.spec.ts",
         "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/happy-path/trace-1d55b0.zip",
-        "screenshots": [".clarvis/runs/20260805T0921-3f9a1c/happy-path/shot-1d55b0-after-save.png"],
+        "screenshots": [
+          ".clarvis/runs/20260805T0921-3f9a1c/happy-path/shot-1d55b0-after-save.png"
+        ],
         "exitCode": 1
       },
-      "determinism": { "runs": 3, "failures": 3, "verdict": "deterministic" },
-      "negativeControl": { "ran": true, "ref": "HEAD~1", "alsoFailed": false },
+      "determinism": {
+        "runs": 3,
+        "failures": 3,
+        "verdict": "deterministic"
+      },
+      "negativeControl": {
+        "ran": true,
+        "ref": "HEAD~1",
+        "alsoFailed": false
+      },
       "foundBy": "qa-happy-path-01",
       "verifiedBy": "qa-triage-02",
       "createdAt": "2026-08-05T09:30:18.000Z",
-      "tracker": { "status": "none" }
+      "tracker": {
+        "status": "none"
+      }
     },
     {
       "id": "f-77e903",
@@ -153,14 +212,22 @@
       "evidence": {
         "specFile": ".clarvis/scratch/qa-i18n-rtl-org-picker.spec.ts",
         "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl/trace-77e903.zip",
-        "screenshots": [".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl/shot-77e903-he-375.png"],
+        "screenshots": [
+          ".clarvis/runs/20260805T0921-3f9a1c/i18n-rtl/shot-77e903-he-375.png"
+        ],
         "exitCode": 1
       },
-      "determinism": { "runs": 3, "failures": 3, "verdict": "deterministic" },
+      "determinism": {
+        "runs": 3,
+        "failures": 3,
+        "verdict": "deterministic"
+      },
       "foundBy": "qa-i18n-rtl-01",
       "verifiedBy": "qa-triage-01",
       "createdAt": "2026-08-05T09:31:40.000Z",
-      "tracker": { "status": "none" }
+      "tracker": {
+        "status": "none"
+      }
     },
     {
       "id": "f-2b41cc",
@@ -188,11 +255,17 @@
         "tracePath": ".clarvis/runs/20260805T0921-3f9a1c/rbac-scope/trace-2b41cc.zip",
         "exitCode": 1
       },
-      "determinism": { "runs": 3, "failures": 2, "verdict": "flaky" },
+      "determinism": {
+        "runs": 3,
+        "failures": 2,
+        "verdict": "flaky"
+      },
       "foundBy": "qa-rbac-scope-01",
       "verifiedBy": "qa-triage-01",
       "createdAt": "2026-08-05T09:35:11.000Z",
-      "tracker": { "status": "none" }
+      "tracker": {
+        "status": "none"
+      }
     },
     {
       "id": "f-9aa017",
@@ -201,7 +274,9 @@
       "severity": "medium",
       "tier": "DISCARDED",
       "tierReason": "No oracle and no reproduction. qa-triage-02 could not reproduce from the artifacts (0/3); the original failure was a stale locator after the dialog re-rendered.",
-      "oracle": { "type": "none" },
+      "oracle": {
+        "type": "none"
+      },
       "route": "/users",
       "role": "sysadmin",
       "locator": "getByRole('button', { name: 'Save' })",
@@ -211,33 +286,151 @@
         "specFile": ".clarvis/scratch/qa-happy-path-org-assign.spec.ts",
         "exitCode": 1
       },
-      "determinism": { "runs": 3, "failures": 0, "verdict": "not-reproduced" },
+      "determinism": {
+        "runs": 3,
+        "failures": 0,
+        "verdict": "not-reproduced"
+      },
       "foundBy": "qa-happy-path-01",
       "verifiedBy": "qa-triage-02",
       "createdAt": "2026-08-05T09:29:55.000Z",
-      "tracker": { "status": "none" }
+      "tracker": {
+        "status": "none"
+      }
     }
   ],
   "coverage": {
     "routesVisited": 5,
     "routesKnown": 7,
-    "rolesExercised": ["sysadmin", "clientadmin", "proctor"],
-    "localesExercised": ["en", "he", "ar", "de"],
+    "rolesExercised": [
+      "sysadmin",
+      "clientadmin",
+      "proctor"
+    ],
+    "localesExercised": [
+      "en",
+      "he",
+      "ar",
+      "de"
+    ],
     "jsCoveragePct": 41.8
   },
   "agentRuns": [
-    { "id": "recon-boot-01", "role": "recon-boot", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.09 },
-    { "id": "recon-auth-01", "role": "recon-auth", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.12 },
-    { "id": "recon-data-01", "role": "recon-data", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.07 },
-    { "id": "qa-happy-path-01", "role": "qa-happy-path", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.41 },
-    { "id": "qa-rbac-scope-01", "role": "qa-rbac-scope", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.63 },
-    { "id": "qa-i18n-rtl-01", "role": "qa-i18n-rtl", "model": "claude-sonnet-5", "status": "ok", "usdEstimate": 0.38 },
-    { "id": "qa-triage-01", "role": "triage", "model": "claude-opus-5", "status": "ok", "usdEstimate": 0.71 },
-    { "id": "qa-triage-02", "role": "triage", "model": "claude-opus-5", "status": "ok", "usdEstimate": 0.55 }
+    {
+      "id": "recon-boot-01",
+      "role": "recon-boot",
+      "model": "claude-sonnet-5",
+      "status": "ok",
+      "usdEstimate": 0.09,
+      "fleet": "recon"
+    },
+    {
+      "id": "recon-auth-01",
+      "role": "recon-auth",
+      "model": "claude-sonnet-5",
+      "status": "ok",
+      "usdEstimate": 0.12,
+      "fleet": "recon"
+    },
+    {
+      "id": "recon-data-01",
+      "role": "recon-data",
+      "model": "claude-sonnet-5",
+      "status": "ok",
+      "usdEstimate": 0.07,
+      "fleet": "recon"
+    },
+    {
+      "id": "qa-happy-path-01",
+      "role": "qa-happy-path",
+      "model": "claude-sonnet-5",
+      "status": "ok",
+      "usdEstimate": 0.41,
+      "fleet": "qa"
+    },
+    {
+      "id": "qa-rbac-scope-01",
+      "role": "qa-rbac-scope",
+      "model": "claude-sonnet-5",
+      "status": "ok",
+      "usdEstimate": 0.63,
+      "fleet": "qa"
+    },
+    {
+      "id": "qa-i18n-rtl-01",
+      "role": "qa-i18n-rtl",
+      "model": "claude-sonnet-5",
+      "status": "ok",
+      "usdEstimate": 0.38,
+      "fleet": "qa"
+    },
+    {
+      "id": "qa-triage-01",
+      "role": "triage",
+      "model": "claude-opus-5",
+      "status": "ok",
+      "usdEstimate": 0.71,
+      "fleet": "qa"
+    },
+    {
+      "id": "qa-triage-02",
+      "role": "triage",
+      "model": "claude-opus-5",
+      "status": "ok",
+      "usdEstimate": 0.55,
+      "fleet": "qa"
+    }
   ],
   "truncation": [
     "adversarial, responsive-a11y, resilience and visual axes were not requested for this run.",
     "i18n-rtl skipped 2 checks: locales 'cs' and 'sk' have no seeded org fixtures.",
     "Only the first 25 users per page were inspected on /users."
-  ]
+  ],
+  "preparation": {
+    "sandbox": {
+      "provisioned": true,
+      "engine": "postgres",
+      "provisionedBy": "fresh-database",
+      "evidence": "database \"shop_clarvis_sbx_a32548\" created on the postgres server at localhost:5432"
+    },
+    "sessions": [
+      {
+        "role": "admin",
+        "ok": true,
+        "detail": "POST /api/auth/login -> 200, 2 cookie(s)"
+      },
+      {
+        "role": "viewer",
+        "ok": true,
+        "detail": "submitted /login and landed on /dashboard"
+      },
+      {
+        "role": "auditor",
+        "ok": false,
+        "detail": "Still on /login after submitting. The credentials were not accepted."
+      }
+    ],
+    "surface": {
+      "routesDeclared": 47,
+      "routesProbed": 40,
+      "routesSnapshotted": 40,
+      "routesBehindAuth": 22,
+      "discoveredBy": [
+        "next-app-router (app, 47 route(s))"
+      ]
+    },
+    "data": {
+      "seeded": true,
+      "commandsRun": [
+        "db:seed"
+      ],
+      "commandsSkipped": [
+        {
+          "script": "db:reset",
+          "reason": "\"db:reset\" destroys data before recreating it, which needs its own opt-in."
+        }
+      ],
+      "targetCheck": "Every connection string is overridden to a database created for this run."
+    }
+  }
 }

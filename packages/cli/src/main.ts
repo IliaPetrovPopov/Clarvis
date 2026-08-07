@@ -10,6 +10,7 @@ import {
   decideGuard,
   applyGuardToAxes,
   provisionSandbox,
+  AGENTS,
   MUTATING_AXES,
   establishSessions,
   sessionsByRole,
@@ -1125,6 +1126,7 @@ function recordAgentRuns(run: Run, results: Array<AgentResult<unknown>>): void {
     ...results.map((r) => ({
       id: r.agentId,
       role: r.role,
+      fleet: AGENTS[r.role]?.fleet,
       model: r.model,
       status: (r.status === "ok" ? "ok" : "error") as "ok" | "error",
       usdEstimate: r.usdEstimate,
@@ -1273,6 +1275,9 @@ async function runCommand(opts: {
   const wantsMutating = requested.some((axis) => MUTATING_AXES.includes(axis));
 
   let sandbox: Sandbox | undefined;
+  // Recorded whether it worked or not: a reader cannot otherwise tell a stage
+  // that succeeded from one that never ran.
+  let sandboxRecord: NonNullable<Run["preparation"]>["sandbox"];
 
   if (wantsMutating && preflight.mode === "read-only" && opts.sandbox !== false) {
     const provisioned = await provisionSandbox({
@@ -1283,6 +1288,19 @@ async function runCommand(opts: {
     });
 
     sandbox = provisioned.sandbox;
+
+    sandboxRecord = sandbox
+      ? {
+          provisioned: true,
+          engine: sandbox.engine,
+          provisionedBy: sandbox.provisionedBy,
+          evidence: sandbox.evidence,
+        }
+      : {
+          provisioned: false,
+          attempts: provisioned.attempts,
+          remedy: provisioned.remedy,
+        };
 
     if (sandbox) {
       console.log(`  sandbox  ${sandbox.evidence}`);
@@ -1333,6 +1351,7 @@ async function runCommand(opts: {
     startedAt,
     status: "running",
     request: {
+      fleets: fleets.order,
       feature: opts.feature,
       brief: opts.brief,
       axes: requested,
@@ -1539,6 +1558,16 @@ async function runCommand(opts: {
     console.log(`  session  ${s.role} FAILED - ${s.reason}`);
   }
 
+  run.preparation = {
+    ...run.preparation,
+    sandbox: sandboxRecord,
+    sessions: sessionResults.map((s) => ({
+      role: s.role,
+      ok: s.ok,
+      detail: s.ok ? s.evidence : [s.reason, s.pageMessage && `The page said: "${s.pageMessage}"`].filter(Boolean).join(" "),
+    })),
+  };
+
   const sessions = sessionsByRole(sessionResults);
   const primarySession = Object.values(sessions)[0];
 
@@ -1555,6 +1584,17 @@ async function runCommand(opts: {
     console.log(
       `  surface  ${surface.routes.length} route(s), ${withSnapshot} snapshotted, ${gated} behind auth`,
     );
+    run.preparation = {
+      ...run.preparation,
+      surface: {
+        routesDeclared: surface.routes.length,
+        routesProbed: surface.routes.filter((r) => r.status !== undefined).length,
+        routesSnapshotted: withSnapshot,
+        routesBehindAuth: gated,
+        discoveredBy: surface.discoveredBy,
+      },
+    };
+
     profile.surface = {
       ...profile.surface,
       routes: surface.routes,
@@ -1582,6 +1622,16 @@ async function runCommand(opts: {
       seeded: prepared.seeded,
       note: prepared.ran.map((r) => r.command.script).join(", ") || undefined,
     };
+    run.preparation = {
+      ...run.preparation,
+      data: {
+        seeded: prepared.seeded,
+        commandsRun: prepared.ran.map((r) => r.command.script),
+        commandsSkipped: prepared.skipped.map((s) => ({ script: s.command.script, reason: s.reason })),
+        targetCheck: prepared.targetCheck.reason,
+      },
+    };
+
     for (const w of prepared.warnings) run.truncation!.push(w);
     for (const s of prepared.skipped) console.log(`  data     skipped ${s.command.script}: ${s.reason}`);
     if (!prepared.targetCheck.ok) console.log(`  data     ${prepared.targetCheck.reason}`);

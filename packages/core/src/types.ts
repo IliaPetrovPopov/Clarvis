@@ -291,6 +291,15 @@ export interface Run {
   finishedAt?: string;
   status: RunStatus;
   request?: {
+    /**
+     * Teams enabled for this run.
+     *
+     * Recorded so the dashboard can show a team that produced nothing as
+     * "did not run" rather than omitting it. An absent row and a silent row
+     * look identical, and that equivalence is the failure this whole product
+     * exists to prevent - it should not appear in its own reporting.
+     */
+    fleets?: string[];
     feature?: string;
     brief?: string;
     axes?: string[];
@@ -316,6 +325,14 @@ export interface Run {
   agentRuns?: Array<{
     id: string;
     role: string;
+    /**
+     * Which team this agent belongs to.
+     *
+     * Written here rather than derived in the reader, so the dashboard can group
+     * by team without carrying its own copy of the role-to-fleet mapping - a
+     * copy that would drift the first time a role moved.
+     */
+    fleet?: string;
     model?: string;
     startedAt?: string;
     finishedAt?: string;
@@ -324,5 +341,46 @@ export interface Run {
     transcriptPath?: string;
   }>;
   /** What the run deliberately did not cover. Shown, never silent. */
+  /**
+   * What each preparation stage actually did.
+   *
+   * These used to leave a trace only when they failed, as prose in
+   * `truncation`. That is the wrong way round: a reader cannot tell the
+   * difference between a stage that succeeded and one that never ran, and
+   * "40 routes mapped, 10 snapshotted" is exactly the context that says how far
+   * to trust a clean result. Recorded as structure rather than sentences so the
+   * dashboard can show it without parsing English.
+   */
+  preparation?: {
+    sandbox?: {
+      provisioned: boolean;
+      engine?: string;
+      provisionedBy?: string;
+      evidence?: string;
+      /** Every rung tried and why it did not work. */
+      attempts?: Array<{ approach: string; outcome: string }>;
+      remedy?: string;
+    };
+    sessions?: Array<{
+      role: string;
+      ok: boolean;
+      /** What proved it real, or why it failed. */
+      detail?: string;
+    }>;
+    surface?: {
+      routesDeclared: number;
+      routesProbed: number;
+      routesSnapshotted: number;
+      routesBehindAuth: number;
+      discoveredBy?: string[];
+    };
+    data?: {
+      seeded: boolean;
+      commandsRun?: string[];
+      commandsSkipped?: Array<{ script: string; reason: string }>;
+      targetCheck?: string;
+    };
+  };
+
   truncation?: string[];
 }
