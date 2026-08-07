@@ -142,7 +142,109 @@ export function planAxes(opts: {
   });
 }
 
-function renderPlan(plan: AxisPlan, profile: Profile): string {
+/**
+ * The part of the brief that describes the real page.
+ *
+ * An accessibility snapshot is what `getByRole` matches against, so handing one
+ * over turns selector-writing from inference into transcription. Without it the
+ * author reads JSX and guesses what the browser built from it - and a component
+ * library, a portal or a wrapper that forwards to a different element all make
+ * that guess wrong in ways no amount of care in the prompt can fix.
+ */
+function renderSurface(profile: Profile): string {
+  const routes = profile.surface?.routes ?? [];
+  if (!routes.length) return "";
+
+  const snapshots = routes.filter((r) => r.ariaSnapshot);
+  if (!snapshots.length) return "";
+
+  return [
+    "",
+    "THE ACTUAL PAGES. These are accessibility snapshots taken from the running",
+    "application, which is what getByRole matches against. Write selectors from",
+    "these, not from the source - if a control is not here, it is not on the page.",
+    ...snapshots.map((r) =>
+      [
+        "",
+        `--- ${r.path}${r.title ? `   "${r.title}"` : ""}${r.requiresAuth ? "   (needs a session)" : ""}`,
+        r.ariaSnapshot,
+      ].join("\n"),
+    ),
+  ].join("\n");
+}
+
+/**
+ * How this spec gets its session.
+ *
+ * The single most repeated and least verified thing an author used to write.
+ * It is now established in code and verified before any spec runs, so the
+ * instruction is to not write one - a login flow an author cannot write is a
+ * login flow it cannot get wrong.
+ */
+function renderSessions(plan: AxisPlan, profile: Profile, sessions?: Record<string, string>): string {
+  const available = Object.entries(sessions ?? {}).filter(([key]) => plan.roles.includes(key));
+  if (!available.length) {
+    return profile.auth.roles.length
+      ? "SESSION: none could be established, so every test here runs anonymously. Do not " +
+          "attempt to log in - it was already tried in code and it failed. Assert only what an " +
+          "anonymous visitor can reach, and put everything else in 'untested'."
+      : "SESSION: this application has no authentication configured. Test anonymously.";
+  }
+
+  const [primaryRole, primaryState] = available[0];
+
+  return [
+    `SESSION: you are ALREADY LOGGED IN as "${primaryRole}". Do not write a login flow,`,
+    "do not navigate to the login page, and do not fill a password field. It is done",
+    "before your spec runs and it has been verified. Writing one again is the single",
+    "most common way a spec fails against a working application.",
+    available.length > 1
+      ? [
+          "",
+          "To test as a different role, set its storage state on a describe block:",
+          "",
+          ...available.map(
+            ([key, state]) =>
+              `  test.describe("as ${key}", () => {\n    test.use({ storageState: ${JSON.stringify(state)} });\n    // ...\n  });`,
+          ),
+          "",
+          "To test as an anonymous visitor, use: test.use({ storageState: { cookies: [], origins: [] } });",
+        ].join("\n")
+      : `  (storage state: ${primaryState})`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** What the author may assume exists in the database. */
+function renderData(profile: Profile, data?: { seeded: boolean; note?: string }): string {
+  const prefix = profile.data.fixturePrefix ?? "clarvis-";
+
+  if (!data) {
+    return `FIXTURE PREFIX: ${prefix} - every record you create must use it, and be cleaned up.`;
+  }
+
+  return [
+    data.seeded
+      ? "DATA: the project's own seed command ran before this spec, so the application holds " +
+        "its normal starting data. Prefer asserting against what seeding created over creating " +
+        "your own - the team's seed script is a more faithful model of their data than anything " +
+        "you would construct."
+      : "DATA: nothing was seeded, so the application holds whatever was already there - possibly " +
+        "nothing. An assertion that a list has rows may be asserting on leftovers, or may fail on " +
+        "an empty database while the application is perfectly correct. Create what you need.",
+    data.note ? `  ${data.note}` : "",
+    `FIXTURE PREFIX: ${prefix} - every record you create must use it, and be cleaned up.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function renderPlan(
+  plan: AxisPlan,
+  profile: Profile,
+  extra?: { sessions?: Record<string, string>; data?: { seeded: boolean; note?: string } },
+): string {
   const roles = profile.auth.roles.filter((r) => plan.roles.includes(r.key));
 
   return [
@@ -162,28 +264,37 @@ function renderPlan(plan: AxisPlan, profile: Profile): string {
         ? `RENDERING: server-rendered. The first response contains the page, so asserting on the ` +
           `response body is valid.`
         : "",
-    profile.auth.loginUrl ? `LOGIN: ${profile.auth.loginUrl} (${profile.auth.mode})` : "",
+    renderSessions(plan, profile, extra?.sessions),
     // The brief never listed routes at all, which is why a spec invented one
     // and navigated anonymously to a protected page - it saw a login screen and
     // reported the real page as broken.
     (profile.surface?.routes ?? []).length
       ? `KNOWN ROUTES. Do not navigate anywhere that is not on this list:\n${(profile.surface?.routes ?? [])
-          .map(
-            (r) =>
-              `  ${r.path}${r.requiresAuth ? "   REQUIRES A SESSION - log in first, or do not visit it" : ""}`,
-          )
+          .map((r) => {
+            const flags = [
+              r.requiresAuth ? "needs a session" : "",
+              r.landedOn ? `redirects to ${r.landedOn}` : "",
+              r.dynamic ? "dynamic - needs a real id, do not visit as written" : "",
+              r.status && r.status >= 400 ? `returned ${r.status}` : "",
+            ].filter(Boolean);
+            return `  ${r.path}${flags.length ? `   (${flags.join("; ")})` : ""}`;
+          })
           .join("\n")}`
       : "KNOWN ROUTES: none were mapped. Use only routes you have read in the source, and " +
         "check whether each one is behind auth before visiting it anonymously.",
+    // Credentials are deliberately absent: sessions are established in code, so
+    // an author has no reason to hold a password and no way to leak one into a
+    // spec file that gets committed.
     roles.length
-      ? `ROLES:\n${roles
+      ? `ROLES in scope for this axis:\n${roles
           .map(
             (r) =>
-              `  ${r.key}: ${r.username} / ${r.password}` +
-              (r.expectedDenied?.length ? `  MUST NOT reach: ${r.expectedDenied.join(", ")}` : ""),
+              `  ${r.key}${r.label ? ` (${r.label})` : ""}` +
+              (r.expectedDenied?.length ? `   MUST NOT reach: ${r.expectedDenied.join(", ")}` : ""),
           )
           .join("\n")}`
       : "ROLES: none configured - test anonymously.",
+    renderSurface(profile),
     "",
     plan.requirements.length
       ? `REQUIREMENTS to assert against. Cite the id in a comment above each assertion:\n${plan.requirements
@@ -193,7 +304,7 @@ function renderPlan(plan: AxisPlan, profile: Profile): string {
         "and list everything you could not judge in 'untested'.",
     plan.notes.length ? `\nNOTES:\n${plan.notes.map((n) => `  - ${n}`).join("\n")}` : "",
     "",
-    `FIXTURE PREFIX: ${profile.data.fixturePrefix ?? "clarvis-"} - every record you create must use it.`,
+    renderData(profile, extra?.data),
     "",
     "Return JSON: { source, covers[], untested[] }. 'source' is the COMPLETE spec file.",
   ]
@@ -211,6 +322,10 @@ export interface AuthorOptions {
   transcriptDir?: string;
   redact?: (text: string) => string;
   maxAttempts?: number;
+  /** storageState path per role, from `establishSessions`. */
+  sessions?: Record<string, string>;
+  /** What `prepareData` left in the database. */
+  data?: { seeded: boolean; note?: string };
 }
 
 /**
@@ -252,14 +367,18 @@ export async function authorSpecs(opts: AuthorOptions): Promise<CrucibleReport> 
     const maxAttempts = opts.maxAttempts ?? 3;
     let lastViolations: string[] = [];
 
+    // Rendered once: it is the largest part of the prompt and identical across
+    // attempts, so building it per attempt would only cost tokens.
+    const brief = renderPlan(plan, opts.profile, { sessions: opts.sessions, data: opts.data });
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const result = await runAgent<AuthorOutput>({
         runner: opts.runner,
         definition: getAgent("crucible-author"),
         prompt:
           lastViolations.length
-            ? `${renderPlan(plan, opts.profile)}\n\nYour previous spec was REJECTED before it ran:\n${lastViolations.join("\n")}`
-            : renderPlan(plan, opts.profile),
+            ? `${brief}\n\nYour previous spec was REJECTED before it ran:\n${lastViolations.join("\n")}`
+            : brief,
         validate: validateAuthor,
         budget: opts.budget,
         agentId: `crucible-author-${plan.axis}-${attempt}`,
@@ -293,6 +412,7 @@ export async function authorSpecs(opts: AuthorOptions): Promise<CrucibleReport> 
         forbiddenHosts: opts.profile.data.forbiddenHosts,
         axis: plan.axis,
         reportedUntested: untested.length,
+        sessionsEstablished: Boolean(Object.keys(opts.sessions ?? {}).length),
       });
 
       if (!gate.ok) {

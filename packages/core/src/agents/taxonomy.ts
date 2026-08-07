@@ -11,12 +11,13 @@ import { runAgent, type AgentResult, type AgentRunner } from "./runtime.ts";
  * also the system's entire model of what can go wrong - so anything outside
  * them is not merely deprioritised, it is never looked for at all.
  *
- * Examate's real failure modes are multi-tenant scoping, exam integrity and
- * paper-scan accuracy. A payments system would need rounding and idempotency.
- * Neither is expressible in the seven, and recon learns a project's boot
- * command and its roles while learning nothing about how it actually breaks.
+ * Every codebase has failure modes the seven cannot express. A multi-tenant
+ * system breaks along scoping boundaries, a payments system along rounding and
+ * idempotency, a scheduler along timezones and clock skew. Recon learns a
+ * project's boot command and its roles while learning nothing about how it
+ * actually breaks.
  *
- * The evidence for a better answer is already in the repository: four hundred
+ * The evidence for a better answer is already in the repository: hundreds of
  * commits of things that did break, described by the people who fixed them.
  * This derives a taxonomy from those, and the seven become defaults rather than
  * the ontology.

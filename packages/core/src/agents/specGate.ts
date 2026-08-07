@@ -25,6 +25,8 @@ export type GateCode =
   | "forbidden-host"
   | "unreported-gap"
   | "reimplemented-actionability"
+  | "hand-rolled-login"
+  | "hardcoded-credential"
   | "conditional-assertion";
 
 export interface GateViolation {
@@ -139,9 +141,38 @@ const REIMPLEMENTED = [
   },
 ];
 
+/**
+ * A login flow written by hand, when one was already established in code.
+ *
+ * The session a spec runs under is created and verified before Playwright
+ * starts, so a spec that logs itself in again is re-solving a solved problem
+ * with worse information. It is also the highest-risk code an author can write:
+ * every failure it causes surfaces as an assertion failure on the page under
+ * test, which reads as a defect in the product rather than in the test.
+ *
+ * Filling a password field is the signal, because it is the one step no other
+ * flow shares. A form that legitimately contains a password - registration, or
+ * a change-password screen - is a real thing to test, so the rule only fires
+ * where a login route is also being navigated to.
+ */
+const PASSWORD_FILL = /\.fill\s*\(\s*[^)]*\)|type\s*=\s*["']password["']|getByLabel\s*\(\s*\/?[^)]*password/i;
+const LOGIN_NAVIGATION = /(goto|url)\s*\(\s*[`'"][^`'"]*\/(login|signin|sign-in|auth)\b/i;
+const PASSWORD_FIELD = /(input\[type=["']?password|getByLabel\([^)]*password|locator\([^)]*password)/i;
+
+/**
+ * A credential written into a spec file.
+ *
+ * Sessions are established in code and the author is never given a password, so
+ * one appearing here means it was invented - and an invented credential produces
+ * a failed login reported as a broken page. It is also a secret in a file that
+ * gets written to disk and read back in reports.
+ */
+const CREDENTIAL_LITERAL =
+  /\b(password|passwd|pwd|secret|apiKey|api_key|token)\s*[:=]\s*["'`][^"'`\s]{4,}["'`]/i;
+
 export function gateSpec(
   source: string,
-  opts: { forbiddenHosts?: string[]; axis?: string; reportedUntested?: number } = {},
+  opts: { forbiddenHosts?: string[]; axis?: string; reportedUntested?: number; sessionsEstablished?: boolean } = {},
 ): GateResult {
   const violations: GateViolation[] = [];
   const warnings: GateViolation[] = [];
@@ -262,6 +293,39 @@ export function gateSpec(
         `Playwright already answers this, correctly and with retries. Use ${instead}. ` +
         `A hand-written check runs once, against a page that may still be settling, and reports ` +
         `a working control as broken.`,
+    });
+  }
+
+  // Only when a session was actually established. Without one there is nothing
+  // for the spec to reuse, and forbidding it would leave the axis untestable.
+  if (opts.sessionsEstablished) {
+    const navigatesToLogin = LOGIN_NAVIGATION.exec(code);
+    const touchesPassword = PASSWORD_FIELD.exec(code);
+
+    if (navigatesToLogin && touchesPassword && PASSWORD_FILL.test(code)) {
+      violations.push({
+        code: "hand-rolled-login",
+        detail: "The spec navigates to a login page and fills a password field.",
+        line: lineOf(code, navigatesToLogin.index),
+        remedy:
+          "You are already logged in - the session was established and verified before this spec " +
+          "ran. Remove the login flow and start from the page you actually want to test. To test " +
+          "as another role, set its storageState on a describe block; to test anonymously, use " +
+          "test.use({ storageState: { cookies: [], origins: [] } }). A login written here fails " +
+          "against a working application and its failure is reported as a product defect.",
+      });
+    }
+  }
+
+  const credential = CREDENTIAL_LITERAL.exec(code);
+  if (credential) {
+    violations.push({
+      code: "hardcoded-credential",
+      detail: `The spec contains a literal credential: ${credential[0].slice(0, 40)}`,
+      line: lineOf(code, credential.index),
+      remedy:
+        "You are not given credentials, so this one was invented and will not work. Sessions are " +
+        "established in code before the spec runs. Remove it.",
     });
   }
 

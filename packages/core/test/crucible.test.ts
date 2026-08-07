@@ -246,6 +246,7 @@ test("the author is told which routes exist and which need a session", async () 
         routes: [
           { path: "/login" },
           { path: "/explore", requiresAuth: true },
+          { path: "/users/[id]", dynamic: true },
         ],
       },
     },
@@ -255,8 +256,93 @@ test("the author is told which routes exist and which need a session", async () 
   });
 
   assert.match(prompts[0], /KNOWN ROUTES/);
-  assert.match(prompts[0], /\/explore\s+REQUIRES A SESSION/);
+  assert.match(prompts[0], /\/explore\s+\(needs a session\)/);
+  assert.match(prompts[0], /\/users\/\[id\]\s+\(dynamic - needs a real id/);
   assert.match(prompts[0], /Do not navigate anywhere that is not on this list/);
+});
+
+test("the author is handed the real page rather than left to infer it", async () => {
+  // Source says what a component is written as; a selector matches what the
+  // browser built. An author reading JSX cannot tell whether <Button> renders a
+  // button, an anchor or a div, and a spec built on the wrong guess fails
+  // against a working application.
+  const dir = await scratch();
+  const prompts: string[] = [];
+
+  const runner: AgentRunner = {
+    async invoke({ definition, prompt }) {
+      prompts.push(prompt);
+      return {
+        text: JSON.stringify({ source: GOOD, covers: [], untested: [] }),
+        model: definition.model,
+        usage: { inputTokens: 10, outputTokens: 10 },
+        usdReported: 0.01,
+      };
+    },
+  };
+
+  await authorSpecs({
+    axes: ["happy-path"],
+    profile: {
+      ...PROFILE,
+      surface: {
+        routes: [
+          {
+            path: "/dashboard",
+            title: "Dashboard",
+            ariaSnapshot: '- heading "Today" [level=1]\n- button "New report"',
+          },
+        ],
+      },
+    },
+    runner,
+    budget: new Budget({ maxUsd: 5 }),
+    scratchDir: dir,
+  });
+
+  assert.match(prompts[0], /accessibility snapshots taken from the running/);
+  assert.match(prompts[0], /button "New report"/);
+  assert.match(prompts[0], /if a control is not here, it is not on the page/i);
+});
+
+test("an established session replaces the credentials the author used to be given", async () => {
+  // Credentials in the brief meant every axis wrote its own login flow - the
+  // most repeated and least verified code in the system, whose failures were
+  // reported as defects in the page under test. They are now absent by design.
+  const dir = await scratch();
+  const prompts: string[] = [];
+
+  const runner: AgentRunner = {
+    async invoke({ definition, prompt }) {
+      prompts.push(prompt);
+      return {
+        text: JSON.stringify({ source: GOOD, covers: [], untested: [] }),
+        model: definition.model,
+        usage: { inputTokens: 10, outputTokens: 10 },
+        usdReported: 0.01,
+      };
+    },
+  };
+
+  await authorSpecs({
+    axes: ["rbac-scope"],
+    profile: PROFILE,
+    runner,
+    budget: new Budget({ maxUsd: 5 }),
+    scratchDir: dir,
+    sessions: { admin: "/state/admin.json", viewer: "/state/viewer.json" },
+  });
+
+  assert.match(prompts[0], /already logged in as "admin"/i);
+  assert.match(prompts[0], /Do not write a login flow/i);
+  assert.match(prompts[0], /storageState: "\/state\/viewer\.json"/);
+
+  for (const role of PROFILE.auth.roles) {
+    assert.ok(
+      !prompts[0].includes(role.password),
+      `the brief must never contain ${role.key}'s password`,
+    );
+  }
 });
 
 test("with no mapped routes the author is told to check auth itself", async () => {

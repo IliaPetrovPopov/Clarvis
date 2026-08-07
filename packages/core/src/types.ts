@@ -112,11 +112,32 @@ export interface Profile {
     routes?: Array<{
       path: string;
       title?: string;
+      /** Observed by visiting anonymously, not inferred from middleware. */
       requiresAuth?: boolean;
       roles?: string[];
       source?: string;
+      /** Contains a parameter, so it cannot be visited as written. */
+      dynamic?: boolean;
+      /** Where the browser ended up, when it differed from `path`. */
+      landedOn?: string;
+      status?: number;
+      /**
+       * The accessibility tree as Playwright renders it.
+       *
+       * The one description of a page that a selector can be written from
+       * without guessing: it is exactly what `getByRole` matches against.
+       * Source says what a component is written as; this says what the browser
+       * built from it, and between the two sit a component library, a portal
+       * and any wrapper that forwards to a different element.
+       */
+      ariaSnapshot?: string;
+      /** Why no snapshot was taken, when none was. */
+      note?: string;
     }>;
     entryPoints?: Array<{ name: string; startRoute: string; notes?: string }>;
+    /** How the routes were found, e.g. "next-app-router (app, 12 route(s))". */
+    discoveredBy?: string[];
+    mappedAt?: string;
   };
   stack?: {
     framework?: string;

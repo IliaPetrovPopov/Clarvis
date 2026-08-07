@@ -41,3 +41,6 @@ export * from "./agents/cluster.ts";
 export * from "./agents/vector.ts";
 export * from "./agents/dispatch.ts";
 export * from "./agents/clearance.ts";
+export * from "./session.ts";
+export * from "./surface.ts";
+export * from "./fixtures.ts";

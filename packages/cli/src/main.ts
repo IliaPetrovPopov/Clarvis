@@ -9,6 +9,10 @@ import {
   measureRendering,
   decideGuard,
   applyGuardToAxes,
+  establishSessions,
+  sessionsByRole,
+  mapSurface,
+  prepareData,
   loadProfile,
   newRunId,
   runAxisSpecs,
@@ -250,6 +254,7 @@ export async function main(argv: string[]): Promise<void> {
       author: { type: "boolean" },
       "no-author": { type: "boolean" },
       "no-triage": { type: "boolean" },
+      "allow-destructive": { type: "boolean" },
       "keep-runs": { type: "string" },
       "max-mutants": { type: "string" },
       "no-restart": { type: "boolean" },
@@ -1074,6 +1079,7 @@ export async function main(argv: string[]): Promise<void> {
         promote: values.promote === true,
         replacePromoted: values.replace === true,
         baseRef: str(values.base),
+        allowDestructive: values["allow-destructive"] === true,
         maxUsd: Number(str(values["max-usd"]) ?? 6),
       });
       return;
@@ -1194,6 +1200,14 @@ async function runCommand(opts: {
   promote?: boolean;
   replacePromoted?: boolean;
   baseRef?: string;
+  /**
+   * Permission to run a data command that destroys before it recreates.
+   *
+   * Separate from `data.disposable` on purpose: being willing to have records
+   * created is not the same as being willing to have the schema dropped, and
+   * one flag covering both would make the safer intent unexpressible.
+   */
+  allowDestructive?: boolean;
 }): Promise<void> {
   const { projectRoot } = opts;
   const profile = await loadProfile(projectRoot, opts.profilePath);
@@ -1354,45 +1368,6 @@ async function runCommand(opts: {
 
   const specsByAxis = new Map<Axis, AuthoredSpec>();
 
-  if (opts.author !== false && axesToRun.length) {
-    await mkdir(paths.scratch, { recursive: true });
-    const crucible = await authorSpecs({
-      axes: axesToRun,
-      profile,
-      context,
-      runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
-      budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
-      scratchDir: paths.scratch,
-      transcriptDir: path.join(paths.root, "transcripts"),
-    });
-
-    for (const spec of crucible.authored) {
-      specsByAxis.set(spec.axis, spec);
-      console.log(
-        `  author   ${spec.axis.padEnd(18)} ${spec.gate.stats.tests} test(s), ` +
-          `${spec.gate.stats.assertions} assertion(s)` +
-          (spec.attempts > 1 ? `  (${spec.attempts} attempts)` : ""),
-      );
-      for (const w of spec.gate.warnings)
-        console.log(`           ${w.code}: ${w.detail}`);
-      for (const u of spec.untested) {
-        run.truncation!.push(`${spec.axis}: not tested - ${u.reason}`);
-      }
-    }
-
-    for (const r of crucible.rejected) {
-      console.log(
-        `  author   ${r.axis.padEnd(18)} REJECTED by the gate after ${r.attempts} attempt(s)`,
-      );
-      for (const v of r.violations)
-        console.log(`           ${v.split("\n")[0]}`);
-    }
-
-    for (const w of crucible.warnings) run.truncation!.push(w);
-    recordAgentRuns(run, crucible.agentRuns);
-    console.log(`  author   ${spendLabel(crucible.usdEstimate)}`);
-  }
-
   /* --- 3. Boot, and refuse to test an app we cannot prove is up ------------ */
 
   const boot = await bootAndVerify(profile, {
@@ -1472,6 +1447,123 @@ async function runCommand(opts: {
     return;
   }
 
+  /* --- 3c. Log in, and look at the real pages ------------------------------ */
+
+  // Everything below needs the application up, which is why authoring moved
+  // after boot. A spec author working from source alone guesses what the
+  // browser built from it; one holding an accessibility snapshot transcribes it.
+  // That difference is the largest single source of findings about the harness
+  // rather than about the software.
+
+  const sessionResults = await establishSessions({
+    profile,
+    sessionDir: path.join(paths.root, "sessions"),
+    log: (l) => console.log(`  session  ${l}`),
+  });
+
+  for (const s of sessionResults) {
+    if (s.ok) continue;
+    // A role that cannot log in makes every test needing it meaningless, so it
+    // goes on the run. Silently continuing anonymously produces a green run
+    // that tested the login wall.
+    run.truncation!.push(
+      `Could not log in as "${s.role}": ${s.reason}` +
+        (s.pageMessage ? ` The page said: "${s.pageMessage}"` : "") +
+        ` Any test needing that role tested nothing.`,
+    );
+    console.log(`  session  ${s.role} FAILED - ${s.reason}`);
+  }
+
+  const sessions = sessionsByRole(sessionResults);
+  const primarySession = Object.values(sessions)[0];
+
+  const surface = await mapSurface({
+    profile,
+    storageState: primarySession,
+    probedAs: Object.keys(sessions)[0],
+    log: (l) => console.log(`  surface  ${l}`),
+  });
+
+  if (surface.routes.length) {
+    const withSnapshot = surface.routes.filter((r) => r.ariaSnapshot).length;
+    const gated = surface.routes.filter((r) => r.requiresAuth).length;
+    console.log(
+      `  surface  ${surface.routes.length} route(s), ${withSnapshot} snapshotted, ${gated} behind auth`,
+    );
+    profile.surface = {
+      ...profile.surface,
+      routes: surface.routes,
+      discoveredBy: surface.discoveredBy,
+      mappedAt: new Date().toISOString(),
+    };
+  }
+  for (const w of surface.warnings) {
+    run.truncation!.push(w);
+    console.log(`  surface  ${w.split(".")[0]}`);
+  }
+
+  /* --- 3d. Data, only where the guard and the database both allow it ------- */
+
+  let dataState: { seeded: boolean; note?: string } | undefined;
+
+  if (decision.mode === "mutating") {
+    const prepared = await prepareData({
+      profile,
+      allowDestructive: opts.allowDestructive,
+      log: (l) => console.log(`  data     ${l}`),
+    });
+    dataState = {
+      seeded: prepared.seeded,
+      note: prepared.ran.map((r) => r.command.script).join(", ") || undefined,
+    };
+    for (const w of prepared.warnings) run.truncation!.push(w);
+    for (const s of prepared.skipped) console.log(`  data     skipped ${s.command.script}: ${s.reason}`);
+    if (!prepared.targetCheck.ok) console.log(`  data     ${prepared.targetCheck.reason}`);
+  }
+
+  /* --- 3e. Author, now against an application that is actually running ----- */
+
+  if (opts.author !== false && axesToRun.length) {
+    await mkdir(paths.scratch, { recursive: true });
+    const crucible = await authorSpecs({
+      axes: axesToRun,
+      profile,
+      context,
+      runner: new ClaudeCodeRunner({ addDirs: [projectRoot], schemas: AGENT_SCHEMAS }),
+      budget: new Budget({ maxUsd: opts.maxUsd ?? 6 }),
+      scratchDir: paths.scratch,
+      transcriptDir: path.join(paths.root, "transcripts"),
+      sessions,
+      data: dataState,
+    });
+
+    for (const spec of crucible.authored) {
+      specsByAxis.set(spec.axis, spec);
+      console.log(
+        `  author   ${spec.axis.padEnd(18)} ${spec.gate.stats.tests} test(s), ` +
+          `${spec.gate.stats.assertions} assertion(s)` +
+          (spec.attempts > 1 ? `  (${spec.attempts} attempts)` : ""),
+      );
+      for (const w of spec.gate.warnings)
+        console.log(`           ${w.code}: ${w.detail}`);
+      for (const u of spec.untested) {
+        run.truncation!.push(`${spec.axis}: not tested - ${u.reason}`);
+      }
+    }
+
+    for (const r of crucible.rejected) {
+      console.log(
+        `  author   ${r.axis.padEnd(18)} REJECTED by the gate after ${r.attempts} attempt(s)`,
+      );
+      for (const v of r.violations)
+        console.log(`           ${v.split("\n")[0]}`);
+    }
+
+    for (const w of crucible.warnings) run.truncation!.push(w);
+    recordAgentRuns(run, crucible.agentRuns);
+    console.log(`  author   ${spendLabel(crucible.usdEstimate)}`);
+  }
+
   /* --- 4. Axes, each in its own browser process ---------------------------- */
 
   const dir = await runDir(projectRoot, runId);
@@ -1505,6 +1597,11 @@ async function runCommand(opts: {
         specFiles: specs,
         outputDir: axisOut,
         baseURL: profile.boot.url,
+        // Every spec starts authenticated. A spec that needs a different role
+        // overrides this per describe block with the storageState it was given;
+        // one that needs anonymity clears it the same way. Both are cheaper and
+        // far more reliable than logging in from inside the test.
+        storageState: primarySession,
         log: (l) => console.log(`  ${l}`),
       });
 

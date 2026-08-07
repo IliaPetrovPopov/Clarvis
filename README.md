@@ -165,14 +165,26 @@ honest; a green axis that asserted nothing is not.
    deferring the rest costs. It can reorder and explain; it cannot invent a
    route, resurrect an axis the guard refused, or drop one silently - anything
    it does not plan is listed as deferred, with the cost stated.
-2. **CRUCIBLE** authors one spec per axis in parallel, gates each, runs them,
-   then re-runs every failure three times in isolation and attributes the fault.
-3. **DISPATCH** drafts a ticket for each confirmed finding. It never files
+2. The application is booted, then **looked at**. Every role logs in once, in
+   code, and the session is verified rather than assumed - so no spec writes a
+   login flow, which was the most repeated and least reliable code in the
+   system. Routes come from the framework's own routing convention; each is
+   visited and its accessibility tree captured. Whether a route needs a session
+   is observed by trying it anonymously, not inferred from middleware.
+3. Under a mutating guard, the project's own seed command runs first: the team's
+   model of their data is more faithful than any this tool could construct. The
+   database that command would write to is checked separately from the HTTP
+   target, because a seed script reads a connection string the guard has never
+   seen - and a local app with a shared remote database passes every other check.
+4. **CRUCIBLE** authors one spec per axis in parallel, against snapshots of the
+   real pages rather than source it has to interpret. Each is gated, run, and
+   every failure re-run three times in isolation with the fault attributed.
+5. **DISPATCH** drafts a ticket for each confirmed finding. It never files
    anything: `decidePublish` refuses unless writes are explicitly enabled, the
    finding is CONFIRMED, a human approved that specific ticket, no duplicate is
    suspected, the project is allow-listed and the per-run cap has room. Refused
    drafts are still written to disk to be read and filed by hand.
-4. **CLEARANCE** decides ship or hold. The verdict is `decideRelease` - plain
+6. **CLEARANCE** decides ship or hold. The verdict is `decideRelease` - plain
    code, not a model, because nobody should be told "ship it" by something that
    might be having an off day. The agent only writes the notes and states the
    limits, and is given the verdict rather than asked for one.
