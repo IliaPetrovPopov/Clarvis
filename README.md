@@ -135,9 +135,20 @@ three times in fresh browser processes. Every run prunes to the last 10
 The guard is plain code with no agent in it, and it fails closed at every
 branch.
 
-- **Mutating tests need two independent yeses**: `data.disposable === true` AND
-  the target matches a `safeTargets` pattern. Neither is ever set by recon -
-  a human sets `disposable`, or only read-only axes run.
+- **Mutating tests need either two independent yeses or a database of our own.**
+  The two yeses are `data.disposable === true` AND a `safeTargets` match, and
+  neither is ever set by recon - a human sets `disposable`. The alternative is
+  provenance: a database Clarvis created for this run, holding nothing but seed
+  data, dropped when the run ends. That is stronger evidence than the flag,
+  because a flag can be set optimistically by someone who did not check. It
+  applies only to a live sandbox object provisioned in this process - never to
+  a config value or a name pattern - and it does not weaken anything below.
+- **Every reachable target must still be this machine**, sandbox or not. A
+  disposable database says nothing about a spec that can reach a real service
+  beside it.
+- **Nothing is removed without the sandbox marker in its name**, so a bug in
+  name derivation destroys nothing. A journal is written before anything is
+  created, so a run killed outright is cleaned up by the next one.
 - **`forbiddenHosts` beats everything**, including `safeTargets: ["*"]`. The
   list is the union of what the safety agent found and what a static scan found
   in the project's own files, so it is still written when the agent fails.
@@ -171,20 +182,29 @@ honest; a green axis that asserted nothing is not.
    system. Routes come from the framework's own routing convention; each is
    visited and its accessibility tree captured. Whether a route needs a session
    is observed by trying it anonymously, not inferred from middleware.
-3. Under a mutating guard, the project's own seed command runs first: the team's
+3. If a mutating axis was asked for and the guard would otherwise refuse, a
+   disposable database is **created** rather than requested: the project's own
+   compose service, or a fresh database beside the one already running locally,
+   or a container. Whichever works, the result is a database that did not exist
+   before the run and is dropped after it - which is stronger evidence than the
+   `disposable` flag, because a flag can be set by someone who did not check.
+   The application boots pointed at it. Nothing is ever removed unless its name
+   carries the sandbox marker, and a journal written before anything is created
+   means a killed run is cleaned up by the next one.
+4. Under a mutating guard, the project's own seed command runs first: the team's
    model of their data is more faithful than any this tool could construct. The
    database that command would write to is checked separately from the HTTP
    target, because a seed script reads a connection string the guard has never
    seen - and a local app with a shared remote database passes every other check.
-4. **CRUCIBLE** authors one spec per axis in parallel, against snapshots of the
+5. **CRUCIBLE** authors one spec per axis in parallel, against snapshots of the
    real pages rather than source it has to interpret. Each is gated, run, and
    every failure re-run three times in isolation with the fault attributed.
-5. **DISPATCH** drafts a ticket for each confirmed finding. It never files
+6. **DISPATCH** drafts a ticket for each confirmed finding. It never files
    anything: `decidePublish` refuses unless writes are explicitly enabled, the
    finding is CONFIRMED, a human approved that specific ticket, no duplicate is
    suspected, the project is allow-listed and the per-run cap has room. Refused
    drafts are still written to disk to be read and filed by hand.
-6. **CLEARANCE** decides ship or hold. The verdict is `decideRelease` - plain
+7. **CLEARANCE** decides ship or hold. The verdict is `decideRelease` - plain
    code, not a model, because nobody should be told "ship it" by something that
    might be having an off day. The agent only writes the notes and states the
    limits, and is given the verdict rather than asked for one.

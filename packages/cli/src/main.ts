@@ -9,6 +9,8 @@ import {
   measureRendering,
   decideGuard,
   applyGuardToAxes,
+  provisionSandbox,
+  MUTATING_AXES,
   establishSessions,
   sessionsByRole,
   mapSurface,
@@ -94,6 +96,7 @@ import {
   type AxisRun,
   type Profile,
   type Run,
+  type Sandbox,
 } from "@clarvis/core";
 import { serveUi } from "./ui.ts";
 import { checkbox, confirm } from "./prompt.ts";
@@ -255,6 +258,7 @@ export async function main(argv: string[]): Promise<void> {
       "no-author": { type: "boolean" },
       "no-triage": { type: "boolean" },
       "allow-destructive": { type: "boolean" },
+      "no-sandbox": { type: "boolean" },
       "keep-runs": { type: "string" },
       "max-mutants": { type: "string" },
       "no-restart": { type: "boolean" },
@@ -1080,6 +1084,7 @@ export async function main(argv: string[]): Promise<void> {
         replacePromoted: values.replace === true,
         baseRef: str(values.base),
         allowDestructive: values["allow-destructive"] === true,
+        sandbox: values["no-sandbox"] !== true,
         maxUsd: Number(str(values["max-usd"]) ?? 6),
       });
       return;
@@ -1208,6 +1213,8 @@ async function runCommand(opts: {
    * one flag covering both would make the safer intent unexpressible.
    */
   allowDestructive?: boolean;
+  /** Set false to refuse to provision a database, whatever the guard says. */
+  sandbox?: boolean;
 }): Promise<void> {
   const { projectRoot } = opts;
   const profile = await loadProfile(projectRoot, opts.profilePath);
@@ -1252,9 +1259,66 @@ async function runCommand(opts: {
 
   const enabled = new Set(fleets.order);
 
+  /* --- 0. A database to write to, made for this run ------------------------ */
+
+  // Before the guard, so everything downstream sees one settled mode. Doing it
+  // afterwards meant the plan was drawn up under read-only rules and then
+  // handed mutating axes it had never considered.
+  //
+  // Only when a mutating axis was actually requested: standing up a database
+  // for a run that will never write to it is cost with no return. And only
+  // when the guard would otherwise refuse - a project a human has already
+  // vouched for needs nothing from this.
+  const preflight = decideGuard(profile, opts.url);
+  const wantsMutating = requested.some((axis) => MUTATING_AXES.includes(axis));
+
+  let sandbox: Sandbox | undefined;
+
+  if (wantsMutating && preflight.mode === "read-only" && opts.sandbox !== false) {
+    const provisioned = await provisionSandbox({
+      profile,
+      runId,
+      stateDir: paths.root,
+      log: (l) => console.log(`  sandbox  ${l}`),
+    });
+
+    sandbox = provisioned.sandbox;
+
+    if (sandbox) {
+      console.log(`  sandbox  ${sandbox.evidence}`);
+      // The application must boot already pointed at it. Without this the app
+      // writes to the project's own database while the seed script writes to
+      // ours, and every assertion runs against data that is not there.
+      profile.boot = { ...profile.boot, env: { ...profile.boot.env, ...sandbox.env } };
+    } else {
+      for (const a of provisioned.attempts) console.log(`  sandbox  ${a.approach}: ${a.outcome}`);
+      if (provisioned.remedy) console.log(`  sandbox  ${provisioned.remedy}`);
+    }
+  }
+
+  // Idempotent, because it is called from every exit path and some of them
+  // overlap. A container left holding a port outlives this run and breaks the
+  // next one for a reason nobody will trace back to here.
+  let released = false;
+  const releaseSandbox = async (): Promise<void> => {
+    if (!sandbox || released) return;
+    released = true;
+    await sandbox.teardown().catch((e: unknown) => {
+      console.log(`  sandbox  could not be removed: ${e instanceof Error ? e.message : String(e)}`);
+    });
+  };
+
+  if (sandbox) {
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.once(signal, () => {
+        void releaseSandbox().then(() => process.exit(130));
+      });
+    }
+  }
+
   /* --- 1. Guard, before anything is touched -------------------------------- */
 
-  const decision = decideGuard(profile, opts.url);
+  const decision = decideGuard(profile, opts.url, sandbox);
   const { allowed, skipped } = applyGuardToAxes(decision, requested);
 
   console.log(`\n  run      ${runId}`);
@@ -1297,16 +1361,15 @@ async function runCommand(opts: {
     run.truncation!.push(
       "Run aborted by the safety guard. Nothing was executed.",
     );
+    await releaseSandbox();
     await writeRun(projectRoot, run);
     console.log(`\n  ABORTED - nothing ran.\n`);
     process.exitCode = 2;
     return;
   }
 
-  /* --- 2. Author the specs, before booting anything ------------------------ */
+  /* --- 2. Gather the context the plan and the specs are written from ------- */
 
-  // Authoring first means a run that cannot produce a usable spec costs nothing
-  // but tokens: the app is never started and nothing is touched.
   let context: FeatureContext | undefined;
   try {
     context = JSON.parse(
@@ -1385,6 +1448,7 @@ async function runCommand(opts: {
     run.truncation!.push(
       "Boot could not be verified, so no axis was executed.",
     );
+    await releaseSandbox();
     await writeRun(projectRoot, run);
     console.log(`\n  BLOCKED - could not verify the app is running:`);
     for (const b of boot.blockers) console.log(`    · ${b}`);
@@ -1441,6 +1505,7 @@ async function runCommand(opts: {
     run.finishedAt = new Date().toISOString();
     run.truncation!.push(warm.note ?? "The application never rendered.");
     await boot.stop();
+    await releaseSandbox();
     await writeRun(projectRoot, run);
     console.log(`\n  BLOCKED - ${warm.note}\n`);
     process.exitCode = 1;
@@ -1509,6 +1574,7 @@ async function runCommand(opts: {
   if (decision.mode === "mutating") {
     const prepared = await prepareData({
       profile,
+      sandboxEnv: sandbox?.env,
       allowDestructive: opts.allowDestructive,
       log: (l) => console.log(`  data     ${l}`),
     });
@@ -1659,6 +1725,7 @@ async function runCommand(opts: {
     run.axes.push(...(await Promise.all(started)));
   } catch (e) {
     await boot.stop();
+    await releaseSandbox();
     throw e;
   }
 
@@ -1681,6 +1748,7 @@ async function runCommand(opts: {
     }
   } finally {
     await boot.stop();
+    await releaseSandbox();
   }
 
   /* --- 6. Verdict from the reporter, not from prose ------------------------ */

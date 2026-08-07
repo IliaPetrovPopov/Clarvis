@@ -195,7 +195,44 @@ async function readProjectEnv(projectRoot: string): Promise<Record<string, strin
  * allowed: a project can name its variable anything, and the failure mode of
  * guessing wrong is dropping a database that was never checked.
  */
-export async function checkDataTarget(profile: Profile): Promise<DataTargetCheck> {
+export async function checkDataTarget(
+  profile: Profile,
+  /**
+   * Environment that overrides the project's own.
+   *
+   * When a sandbox is in play these are the connection strings the command will
+   * actually use, and checking the project's env instead would refuse a run
+   * that was never going to touch the project's database - or, worse, approve
+   * one because the file looked local while the override did not.
+   */
+  overrides?: Record<string, string>,
+): Promise<DataTargetCheck> {
+  if (overrides && Object.keys(overrides).length) {
+    for (const [variable, value] of Object.entries(overrides)) {
+      if (!CONNECTION_VARS.includes(variable)) continue;
+      const host = hostFromConnectionString(value);
+      if (!host) {
+        return { ok: false, variable, reason: `${variable} is overridden with a value that names no host.` };
+      }
+      if (!LOCAL_HOSTS.test(host)) {
+        return {
+          ok: false,
+          variable,
+          host,
+          reason: `${variable} is overridden to point at ${host}, which is not this machine.`,
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      variable: Object.keys(overrides)[0],
+      reason:
+        `Every connection string is overridden to a database created for this run, so the ` +
+        `project's own is not reachable from these commands.`,
+    };
+  }
+
   const fromFiles = await readProjectEnv(profile.project.root);
 
   // BOTH sources, not one layered over the other. Which of them wins at runtime
@@ -275,13 +312,18 @@ function runCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
+  overrides?: Record<string, string>,
 ): Promise<{ exitCode: number; output: string }> {
   return new Promise((resolve) => {
     const child = spawn(command, {
       cwd,
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      // The overrides go LAST so a sandbox connection string wins over
+      // anything already in the environment. A seed script that read the real
+      // one because the ordering was the other way round would write the
+      // project's own database, which is the whole thing this prevents.
+      env: { ...process.env, CI: "1", FORCE_COLOR: "0", ...overrides },
     });
 
     let output = "";
@@ -311,6 +353,13 @@ function runCommand(
 export interface PrepareOptions {
   profile: Profile;
   /**
+   * Connection strings pointing at a database created for this run.
+   *
+   * Passed to the commands and used for the safety check in place of the
+   * project's own env, because these are what the command will actually see.
+   */
+  sandboxEnv?: Record<string, string>;
+  /**
    * Permission to run a command that destroys before it creates. Separate from
    * `data.disposable` on purpose: being willing to have records created is not
    * being willing to have the schema dropped, and one flag for both would make
@@ -337,7 +386,13 @@ export async function prepareData(opts: PrepareOptions): Promise<PreparedData> {
   const ran: PreparedData["ran"] = [];
   const skipped: PreparedData["skipped"] = [];
 
-  const decision = decideGuard(opts.profile);
+  const decision = decideGuard(
+    opts.profile,
+    undefined,
+    opts.sandboxEnv && Object.keys(opts.sandboxEnv).length
+      ? { provisionedBy: "fresh-database", uri: Object.values(opts.sandboxEnv)[0], evidence: "provisioned for this run" }
+      : undefined,
+  );
   if (decision.mode !== "mutating") {
     return {
       ran: [],
@@ -348,7 +403,7 @@ export async function prepareData(opts: PrepareOptions): Promise<PreparedData> {
     };
   }
 
-  const targetCheck = await checkDataTarget(opts.profile);
+  const targetCheck = await checkDataTarget(opts.profile, opts.sandboxEnv);
   if (!targetCheck.ok) {
     log(`data preparation refused: ${targetCheck.reason}`);
     return {
@@ -413,6 +468,7 @@ export async function prepareData(opts: PrepareOptions): Promise<PreparedData> {
       command.command,
       opts.profile.project.root,
       opts.timeoutMs ?? 180_000,
+      opts.sandboxEnv,
     );
     const durationMs = Date.now() - startedAt;
     ran.push({ command, exitCode, durationMs });

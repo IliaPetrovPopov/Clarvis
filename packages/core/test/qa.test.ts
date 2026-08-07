@@ -7,6 +7,15 @@ import { gateSpec } from "../src/agents/specGate.ts";
 import { fillTemplate } from "../src/session.ts";
 import { discoverFileRoutes, discoverConfigRoutes, resolveRoutePath, paramsIn } from "../src/surface.ts";
 import { checkDataTarget, discoverDataCommands, hostFromConnectionString } from "../src/fixtures.ts";
+import { decideGuard } from "../src/guard.ts";
+import {
+  SANDBOX_MARKER,
+  databaseOf,
+  engineOf,
+  reclaimLeaked,
+  sandboxName,
+  withDatabase,
+} from "../src/sandbox.ts";
 import type { AuthRole, Profile } from "../src/types.ts";
 
 /**
@@ -360,4 +369,142 @@ test("a session that stored nothing is not treated as a session", async () => {
   const source = await readFile(new URL("../src/session.ts", import.meta.url), "utf8");
   assert.match(source, /indistinguishable from an anonymous one/);
   assert.match(source, /!captured\.cookies && !captured\.origins/);
+});
+
+/* ---------------------------------------------------------------- sandbox */
+
+test("a sandbox name is never the project's own database", () => {
+  const name = sandboxName("lumira", "20260807T1200-a32548");
+  assert.notEqual(name, "lumira");
+  assert.ok(name.includes(SANDBOX_MARKER), "the marker is what makes teardown safe");
+  assert.match(name, /^lumira_/, "the original is kept so a human can tell what it belongs to");
+
+  // A name with characters an engine would reject, and no name at all.
+  assert.ok(!/[^A-Za-z0-9_]/.test(sandboxName("my-app.db", "r1")));
+  assert.ok(sandboxName(undefined, "r1").includes(SANDBOX_MARKER));
+});
+
+test("the database in a connection string is swapped without losing its options", () => {
+  assert.equal(
+    withDatabase("mongodb://127.0.0.1:27017/lumira", "lumira_clarvis_sbx_1"),
+    "mongodb://127.0.0.1:27017/lumira_clarvis_sbx_1",
+  );
+  // An authSource or an sslmode dropped here turns a working connection into a
+  // failure that would be attributed to the sandbox.
+  assert.equal(
+    withDatabase("postgres://u:p@localhost:5432/app?sslmode=require", "app_sbx"),
+    "postgres://u:p@localhost:5432/app_sbx?sslmode=require",
+  );
+  assert.equal(
+    withDatabase("mongodb://root:pw@localhost:27017/db?authSource=admin", "db_sbx"),
+    "mongodb://root:pw@localhost:27017/db_sbx?authSource=admin",
+  );
+  // No database named at all.
+  assert.equal(withDatabase("mongodb://localhost:27017", "x"), "mongodb://localhost:27017/x");
+});
+
+test("the database name is read back out of a connection string", () => {
+  assert.equal(databaseOf("mongodb://127.0.0.1:27017/lumira"), "lumira");
+  assert.equal(databaseOf("postgres://u:p@h:5432/app?sslmode=require"), "app");
+  assert.equal(databaseOf("mongodb://localhost:27017"), undefined);
+});
+
+test("the engine is read from the scheme", () => {
+  assert.equal(engineOf("mongodb+srv://a/b"), "mongodb");
+  assert.equal(engineOf("postgresql://a/b"), "postgres");
+  assert.equal(engineOf("mysql://a/b"), "mysql");
+  assert.equal(engineOf("redis://a"), undefined);
+});
+
+test("a leaked resource without the marker is never removed", async () => {
+  const dir = await scratch();
+  try {
+    // A bug in name derivation must destroy nothing. The marker check is what
+    // makes that true, so it is asserted rather than trusted.
+    await writeFile(
+      path.join(dir, "sandbox-journal.json"),
+      JSON.stringify({ kind: "database", engine: "mongodb", name: "production", createdAt: "" }),
+      "utf8",
+    );
+
+    const lines: string[] = [];
+    const removed = await reclaimLeaked(dir, (l) => lines.push(l));
+
+    assert.deepEqual(removed, [], "nothing without the marker may be removed");
+    assert.match(lines.join(" "), /refusing to remove "production"/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------ guard path */
+
+test("a provisioned sandbox makes a run mutating without any human flag", () => {
+  // The flag made the mutating axes depend on setup nobody does, so they had
+  // never run. Provenance answers the same question with better evidence.
+  const profile = profileWith({ data: { disposable: false, safeTargets: [] } });
+
+  assert.equal(decideGuard(profile).mode, "read-only", "no sandbox, no flag: read-only");
+
+  const withSandbox = decideGuard(profile, undefined, {
+    provisionedBy: "fresh-database",
+    uri: "mongodb://127.0.0.1:27017/app_clarvis_sbx_1",
+    evidence: "a database created for this run",
+  });
+
+  assert.equal(withSandbox.mode, "mutating");
+  assert.match(withSandbox.reason, /dropped afterwards/);
+});
+
+test("a forbidden host still beats a sandbox", () => {
+  const profile = profileWith({
+    boot: { url: "http://prod.example.com", verified: true },
+    data: { disposable: true, safeTargets: ["*"], forbiddenHosts: ["prod.example.com"] },
+  });
+
+  const decided = decideGuard(profile, undefined, {
+    provisionedBy: "container",
+    uri: "mongodb://127.0.0.1:27017/x_clarvis_sbx_1",
+    evidence: "a container",
+  });
+
+  assert.equal(decided.mode, "aborted", "rule 1 is not weakened by rule 2");
+});
+
+test("a sandbox does not license writing to a remote service", () => {
+  // A disposable database says nothing about a spec that can reach a real
+  // service alongside it.
+  const profile = profileWith({
+    services: [{ key: "billing", url: "https://api.stripe.com" }],
+  });
+
+  const decided = decideGuard(profile, undefined, {
+    provisionedBy: "fresh-database",
+    uri: "mongodb://127.0.0.1:27017/x_clarvis_sbx_1",
+    evidence: "a database created for this run",
+  });
+
+  assert.equal(decided.mode, "read-only");
+  assert.match(decided.reason, /not on this machine/);
+});
+
+test("data commands run against the sandbox, not the project's own database", async () => {
+  const dir = await scratch();
+  try {
+    // The project's file points somewhere that would normally be refused. The
+    // override is what the command will actually see, so that is what is checked.
+    await writeFile(path.join(dir, ".env"), "DATABASE_URL=postgres://10.0.0.5:5432/shared\n", "utf8");
+
+    const profile = profileWith({ project: { name: "t", root: dir } });
+
+    assert.equal((await checkDataTarget(profile)).ok, false, "without an override, refused");
+
+    const overridden = await checkDataTarget(profile, {
+      DATABASE_URL: "postgres://127.0.0.1:5432/shared_clarvis_sbx_1",
+    });
+    assert.equal(overridden.ok, true);
+    assert.match(overridden.reason, /created for this run/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

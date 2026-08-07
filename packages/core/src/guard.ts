@@ -8,11 +8,31 @@
  *
  * Rules, in order:
  *   1. A `forbiddenHosts` match aborts the run outright - it beats everything.
- *   2. `disposable !== true` means read-only. The default is false, so a project
+ *   2. A sandbox this process created makes the target mutating, because the
+ *      database being written to is one Clarvis made minutes ago and will drop.
+ *      See below - this is a different question from the two that follow, not a
+ *      relaxation of them.
+ *   3. `disposable !== true` means read-only. The default is false, so a project
  *      nobody has vetted is read-only automatically.
- *   3. No `safeTargets` match means read-only.
- *   4. Only when the target is explicitly disposable AND matches a safe target
+ *   4. No `safeTargets` match means read-only.
+ *   5. Only when the target is explicitly disposable AND matches a safe target
  *      do mutating axes run.
+ *
+ * On rule 2. The flag exists to make a human vouch for a database we were
+ * handed, and it is right to demand that. But it made mutating axes depend on
+ * setup work nobody does, so the most valuable half of the system had never run
+ * once. A provisioned sandbox answers the same question by a stronger route: it
+ * is not that someone believes the data is expendable, it is that the database
+ * did not exist before this run and holds nothing but seed data. Provenance is
+ * better evidence than a flag, because a flag can be set optimistically by
+ * someone who did not check.
+ *
+ * The narrowness matters. It applies only to a live sandbox object returned by
+ * `provisionSandbox` in this process - not a config value, not a name pattern,
+ * nothing a file can claim. And it does not weaken rule 1: a forbidden host is
+ * still refused, and every reachable service must still be local, because a
+ * sandboxed database does nothing about a spec that can reach a real service
+ * alongside it.
  */
 
 import { MUTATING_AXES, READ_ONLY_AXES, type Axis, type GuardMode, type Profile } from "./types.ts";
@@ -64,7 +84,27 @@ function matchesAny(target: string, patterns: readonly string[] | undefined): st
   return undefined;
 }
 
-export function decideGuard(profile: Profile, requestedUrl?: string): GuardDecision {
+/**
+ * The minimum a sandbox must present to be trusted here.
+ *
+ * Deliberately structural rather than a boolean: this is satisfied by holding
+ * an object `provisionSandbox` returned, and by nothing that can be written in
+ * a config file.
+ */
+export interface SandboxEvidence {
+  provisionedBy: "compose" | "fresh-database" | "container";
+  uri: string;
+  evidence: string;
+}
+
+/** Hosts that are unambiguously this machine. */
+const LOCAL_ONLY = /^(localhost|127\.0\.0\.1|\[::1\]|::1|0\.0\.0\.0|host\.docker\.internal)$/i;
+
+export function decideGuard(
+  profile: Profile,
+  requestedUrl?: string,
+  sandbox?: SandboxEvidence,
+): GuardDecision {
   const target = normalizeTarget(requestedUrl ?? profile.boot.url);
 
   const forbidden = matchesAny(target, profile.data.forbiddenHosts);
@@ -104,6 +144,34 @@ export function decideGuard(profile: Profile, requestedUrl?: string): GuardDecis
     skippedAxes: [...MUTATING_AXES],
     allowedAxes: [...READ_ONLY_AXES],
   });
+
+  // A database this process created, holding nothing but seed data, that will
+  // be dropped when the run ends. Everything the flag is meant to establish,
+  // established by construction instead of by assertion.
+  if (sandbox) {
+    const everyTarget = [target, ...(profile.services ?? []).map((s) => normalizeTarget(s.url))];
+    const remote = everyTarget.find((t) => !LOCAL_ONLY.test(t.split(":")[0]));
+
+    // A sandboxed database says nothing about a spec that can reach a real
+    // service beside it, so every reachable target must still be this machine.
+    if (remote) {
+      return readOnly(
+        `A disposable database was provisioned, but ${remote} is not on this machine. ` +
+          `A spec can reach it directly, and the sandbox does nothing about that.`,
+      );
+    }
+
+    return {
+      mode: "mutating",
+      target,
+      reason:
+        `Writing to a disposable database created for this run: ${sandbox.evidence}. ` +
+        `It did not exist beforehand and is dropped afterwards, so nothing here is the ` +
+        `project's own data.`,
+      skippedAxes: [],
+      allowedAxes: [...MUTATING_AXES, ...READ_ONLY_AXES],
+    };
+  }
 
   if (profile.data.disposable !== true) {
     return readOnly(
