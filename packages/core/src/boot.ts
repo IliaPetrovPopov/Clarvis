@@ -260,35 +260,58 @@ export async function bootAndVerify(
 export async function warmRoutes(
   profile: Profile,
   extraRoutes: string[] = [],
-  opts: { timeoutMs?: number; log?: (line: string) => void } = {},
+  opts: { timeoutMs?: number; maxRoutes?: number; log?: (line: string) => void } = {},
 ): Promise<{ warmed: string[]; cold: Array<{ route: string; note: string }> }> {
   const log = opts.log ?? (() => {});
   const base = profile.boot.url.replace(/\/$/, "");
 
+  /*
+    Only what the specs will actually visit.
+
+    This used to warm every route in the mapped surface. That was harmless
+    while nothing persisted the map and the list was two entries long; once the
+    map was saved, the same line began walking all forty-seven routes of a real
+    application, serially, at up to forty-five seconds each. A run sat in
+    warm-up for twenty-three minutes before anyone noticed - the log said
+    "already up" and the next stage simply never arrived.
+
+    Warming is not a crawl. Its whole purpose is that a dev server compiles a
+    route on its first request, so the assertions that follow do not race a
+    compiler. Only the routes about to be asserted against need it, and the
+    caller knows which those are.
+  */
   const routes = [
     ...new Set(
-      [
-        "/",
-        profile.auth.loginUrl ?? "",
-        ...(profile.surface?.routes ?? []).map((r) => r.path),
-        ...extraRoutes,
-      ]
+      ["/", profile.auth.loginUrl ?? "", ...extraRoutes]
         .map((r) => (r ?? "").trim())
         .filter((r) => r.startsWith("/")),
     ),
-  ];
+  ].slice(0, opts.maxRoutes ?? 12);
 
   const warmed: string[] = [];
   const cold: Array<{ route: string; note: string }> = [];
 
-  for (const route of routes) {
-    const result = await warmUp(`${base}${route}`, {
-      timeoutMs: opts.timeoutMs ?? 45_000,
-      log: (l) => log(`${route} ${l}`),
-    });
-    if (result.rendered) warmed.push(route);
-    else cold.push({ route, note: result.note ?? "did not render" });
-  }
+  // Concurrent, in a small pool. These are independent GETs against a local
+  // server, and doing them one at a time makes the wait the sum of the
+  // slowest case rather than close to it.
+  const POOL = 4;
+  const queue = [...routes];
+
+  const worker = async (): Promise<void> => {
+    for (let route = queue.shift(); route; route = queue.shift()) {
+      const result = await warmUp(`${base}${route}`, {
+        // Best effort: a route that has not rendered in fifteen seconds is
+        // reported cold rather than waited on, because the run is about to
+        // visit it properly anyway with its own generous timeout.
+        timeoutMs: opts.timeoutMs ?? 15_000,
+        log: (l) => log(`${route} ${l}`),
+      });
+      if (result.rendered) warmed.push(route);
+      else cold.push({ route, note: result.note ?? "did not render" });
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(POOL, routes.length) }, worker));
 
   return { warmed, cold };
 }

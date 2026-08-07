@@ -105,10 +105,21 @@ test("a loading shell is not a rendered application", async () => {
   );
 });
 
-test("every route the specs will visit is warmed, not just the base URL", async () => {
-  // Two runs failed the same way: the base URL was warm and `/login` - which is
-  // where every spec actually navigates - compiled on its own first request,
-  // so the assertions raced a compiler exactly as before.
+test("the routes the specs will visit are warmed, and nothing else", async () => {
+  /*
+    Two constraints that pull against each other, and both have cost a run.
+
+    Warming only the base URL was the first failure: `/login` is where every
+    spec navigates, and it compiled on its own first request, so the assertions
+    raced a compiler exactly as before.
+
+    Warming the whole mapped surface was the second. Harmless while nothing
+    persisted the map and the list was two entries long; once it was saved, the
+    same line walked all forty-seven routes of a real application serially, and
+    a run sat in warm-up for twenty-three minutes. Warming is not a crawl - the
+    caller knows which routes are about to be asserted against, and those are
+    the only ones that need it.
+  */
   const { warmRoutes } = await import("../src/boot.ts");
 
   const asked: string[] = [];
@@ -135,8 +146,12 @@ test("every route the specs will visit is warmed, not just the base URL", async 
     );
 
     assert.ok(asked.some((u) => u.endsWith("/login")), "the login route must be warmed");
-    assert.ok(asked.some((u) => u.endsWith("/signup")), "mapped routes must be warmed");
-    assert.ok(asked.some((u) => u.endsWith("/pricing")), "planned routes must be warmed");
+    assert.ok(asked.some((u) => u.endsWith("/pricing")), "routes the caller named must be warmed");
+    assert.ok(asked.some((u) => u.endsWith("3100/")), "the base URL must be warmed");
+    assert.ok(
+      !asked.some((u) => u.endsWith("/signup")),
+      "the mapped surface must NOT be walked - that is a crawl, and it hung a run for 23 minutes",
+    );
     assert.deepEqual(result.cold, []);
   } finally {
     globalThis.fetch = originalFetch;
@@ -267,4 +282,47 @@ test("a readyCheck on the same origin is honoured", async () => {
   }
 
   assert.ok(seen[0].endsWith("/health"), "a cheaper endpoint on the same app is the point of it");
+});
+
+test("warming is bounded and concurrent", async () => {
+  // Serial visits make the wait the sum of the slowest case rather than close
+  // to it, and an unbounded list makes it unbounded. Both are how the
+  // twenty-three minute hang happened.
+  const { warmRoutes } = await import("../src/boot.ts");
+
+  let inFlight = 0;
+  let peak = 0;
+  const asked: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (url: string | URL) => {
+    asked.push(String(url));
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 12));
+    inFlight--;
+    return new Response(
+      "<html><body><h1>Welcome</h1><form><input name='e'><button>Go</button></form></body></html>",
+    );
+  }) as typeof fetch;
+
+  try {
+    const many = Array.from({ length: 40 }, (_, i) => `/r${i}`);
+    await warmRoutes(
+      {
+        schemaVersion: 1,
+        project: { name: "p", root: "/tmp/p" },
+        boot: { url: "http://localhost:3100", verified: true },
+        auth: { mode: "none", roles: [] },
+        data: { disposable: false, safeTargets: [] },
+      } as never,
+      many,
+      { maxRoutes: 8 },
+    );
+
+    assert.ok(asked.length <= 8, `warmed ${asked.length} routes, expected the cap to hold`);
+    assert.ok(peak > 1, "routes must be warmed concurrently, not one at a time");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

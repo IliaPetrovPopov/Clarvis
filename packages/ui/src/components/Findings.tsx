@@ -233,6 +233,41 @@ function Row({ finding, index }: { finding: Finding; index: number }) {
   );
 }
 
+/**
+ * One line of what a run did not cover.
+ *
+ * Most are a sentence. A few are triage explaining, at length and correctly,
+ * why a failure was its own spec's fault - four hundred words of reasoning
+ * that belongs on the record but not in a bulleted list, where it buries the
+ * twelve short entries around it under one long one.
+ *
+ * Clamped rather than cut: the reasoning is the evidence for a finding being
+ * discarded, and a summary of it would be a summary of exactly the thing a
+ * sceptical reader wants to check.
+ */
+function Gap({ text }: { text: string }) {
+  const long = text.length > 240;
+  const [open, setOpen] = useState(false);
+
+  return (
+    <li className="prose flex gap-2.5 text-[11.5px]" style={{ color: "var(--color-muted)" }}>
+      <span style={{ color: "var(--color-attend)" }}>·</span>
+      <span className="min-w-0">
+        {long && !open ? `${text.slice(0, 240).trimEnd()}...` : text}
+        {long && (
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="focusable lbl ml-2 align-baseline"
+            style={{ color: "var(--color-attend)" }}
+          >
+            {open ? "less" : "more"}
+          </button>
+        )}
+      </span>
+    </li>
+  );
+}
+
 export function Findings({ run }: { run: Run }) {
   const [showDiscarded, setShowDiscarded] = useState(false);
   const all = [...(run.findings ?? [])].sort((a, b) => rank(a) - rank(b));
@@ -293,10 +328,7 @@ export function Findings({ run }: { run: Run }) {
           <Label tone="var(--color-attend)">not covered by this run</Label>
           <ul className="mt-2 space-y-1.5">
             {run.truncation.map((t, i) => (
-              <li key={i} className="prose flex gap-2.5 text-[11.5px]" style={{ color: "var(--color-muted)" }}>
-                <span style={{ color: "var(--color-attend)" }}>·</span>
-                {t}
-              </li>
+              <Gap key={i} text={t} />
             ))}
           </ul>
         </div>

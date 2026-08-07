@@ -273,9 +273,14 @@ export function Pipeline({ run }: { run: Run }) {
     return null;
   }
 
+  // Two columns only when there are two things. A placeholder holding the
+  // other half open leaves a panel-sized hole for the whole of a run's early
+  // stages, which is exactly when someone is watching it.
+  const prepared = Boolean(run.preparation);
+
   return (
-    <div className="grid gap-5 px-5 pt-6 lg:grid-cols-2 lg:px-8">
-      {run.preparation ? <Preparation prep={run.preparation} /> : <div />}
+    <div className={`grid gap-5 px-5 pt-6 lg:px-8 ${prepared ? "lg:grid-cols-2" : ""}`}>
+      {prepared && <Preparation prep={run.preparation!} />}
       <Teams run={run} />
     </div>
   );

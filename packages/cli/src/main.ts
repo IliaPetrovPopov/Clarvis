@@ -1312,12 +1312,53 @@ async function runCommand(opts: {
   const preflight = decideGuard(profile, opts.url);
   const wantsMutating = requested.some((axis) => MUTATING_AXES.includes(axis));
 
+  /*
+    The run record is opened here, before anything slow happens.
+
+    It used to be created after the guard and written only at the first stage
+    transition, which is well past provisioning a database - the one step that
+    can take minutes while it pulls an image. For all of that time the
+    dashboard showed the PREVIOUS run, so the moment a person most wants to see
+    something happening was the moment nothing was recorded. The guard fields
+    are seeded from the preflight decision and corrected below once the real
+    one is taken.
+  */
+  const run: Run = {
+    schemaVersion: 1,
+    runId,
+    startedAt,
+    status: "running",
+    request: {
+      fleets: fleets.order,
+      feature: opts.feature,
+      brief: opts.brief,
+      axes: requested,
+      profilePath: opts.profilePath ?? paths.profile,
+    },
+    guard: {
+      mode: preflight.mode,
+      target: preflight.target,
+      matchedSafeTarget: preflight.matchedSafeTarget,
+      reason: preflight.reason,
+      skippedAxes: [],
+    },
+    axes: [],
+    findings: [],
+    truncation: [
+      ...fleets.degradations.map(
+        (d) => `${FLEETS[d.fleet].codename} ran without ${FLEETS[d.missing].codename}: ${d.effect}`,
+      ),
+    ],
+  };
+
   let sandbox: Sandbox | undefined;
   // Recorded whether it worked or not: a reader cannot otherwise tell a stage
   // that succeeded from one that never ran.
   let sandboxRecord: NonNullable<Run["preparation"]>["sandbox"];
 
   if (wantsMutating && preflight.mode === "read-only" && opts.sandbox !== false) {
+    await markStage(projectRoot, run, "sandbox", "preparing a disposable database");
+
     const provisioned = await provisionSandbox({
       profile,
       runId,
@@ -1383,33 +1424,15 @@ async function runCommand(opts: {
     `  guard    ${decision.mode.toUpperCase()} - ${fmtGuard(decision.reason)}`,
   );
 
-  const run: Run = {
-    schemaVersion: 1,
-    runId,
-    startedAt,
-    status: "running",
-    request: {
-      fleets: fleets.order,
-      feature: opts.feature,
-      brief: opts.brief,
-      axes: requested,
-      profilePath: opts.profilePath ?? paths.profile,
-    },
-    guard: {
-      mode: decision.mode,
-      target: decision.target,
-      matchedSafeTarget: decision.matchedSafeTarget,
-      reason: decision.reason,
-      skippedAxes: skipped.map((s) => s.axis),
-    },
-    axes: [],
-    findings: [],
-    truncation: [
-      ...fleets.degradations.map(
-        (d) =>
-          `${FLEETS[d.fleet].codename} ran without ${FLEETS[d.missing].codename}: ${d.effect}`,
-      ),
-    ],
+  // Corrected, not recreated: the record was opened before provisioning so a
+  // run in flight is visible from the first second, and the guard it was
+  // seeded with was the preflight one.
+  run.guard = {
+    mode: decision.mode,
+    target: decision.target,
+    matchedSafeTarget: decision.matchedSafeTarget,
+    reason: decision.reason,
+    skippedAxes: skipped.map((s) => s.axis),
   };
 
   if (decision.mode === "aborted") {
@@ -1619,6 +1642,10 @@ async function runCommand(opts: {
     profile,
     storageState: primarySession,
     probedAs: Object.keys(sessions)[0],
+    // Bounded, and reported when it bites. A full crawl of a large
+    // application is minutes of browser time on every run, and the map is
+    // persisted - so each run extends coverage rather than repeating it.
+    maxRoutes: 20,
     log: (l) => console.log(`  surface  ${l}`),
   });
 
@@ -1644,6 +1671,15 @@ async function runCommand(opts: {
       routes: surface.routes,
       discoveredBy: surface.discoveredBy,
       mappedAt: new Date().toISOString(),
+    };
+
+    // The header asks "how much was reached" and had nothing to answer with,
+    // so it showed "--" on a run that had just visited twenty routes.
+    run.coverage = {
+      ...run.coverage,
+      routesKnown: surface.routes.length,
+      routesVisited: withSnapshot,
+      rolesExercised: Object.keys(sessions),
     };
 
     // Persisted, not just held for this run. Mapping costs a browser and a
