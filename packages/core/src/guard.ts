@@ -92,7 +92,7 @@ function matchesAny(target: string, patterns: readonly string[] | undefined): st
  * a config file.
  */
 export interface SandboxEvidence {
-  provisionedBy: "compose" | "fresh-database" | "container";
+  provisionedBy: "compose" | "fresh-database" | "container" | "in-process";
   uri: string;
   evidence: string;
 }
