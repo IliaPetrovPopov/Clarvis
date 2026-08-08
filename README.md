@@ -225,6 +225,14 @@ Creating an account is a write, so the guard decides. The identity carries the
 fixture prefix and a random tail, and it is proven by logging in with it
 afterwards rather than by the form appearing to submit.
 
+**A database of our own needs nothing installed.** The first rung is a real
+mongod started in-process - the same binary the project would run, not an
+emulator - on a port the OS picks, in a temp directory that goes when the run
+does. There is no daemon to manage and nothing to remember to stop. It costs a
+one-off download and about 300ms per run thereafter. The other rungs - a
+compose service, a database beside one already running, a container - remain as
+fallbacks for projects and engines this does not cover.
+
 **It goes in a database of our own, not yours.** Provisioning is attempted
 whenever a mutating axis is wanted - not only when the guard was about to
 refuse, which is what it used to do, and which meant a project marked

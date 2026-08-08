@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { decideGuard, normalizeTarget } from "./guard.ts";
 import type { Profile } from "./types.ts";
@@ -52,6 +52,8 @@ export interface DataCommand {
   script: string;
   /** What that script actually runs. */
   command: string;
+  /** Directory to run it from, relative to the project root. */
+  cwd: string;
   /** True when it drops, truncates or recreates rather than adding. */
   destructive: boolean;
 }
@@ -92,17 +94,51 @@ const MIGRATE_NAMES = /^(db:)?(migrate|migration|migrate:latest|schema:push)$/i;
 const DESTRUCTIVE_BODY = /\b(drop|truncate|--force-reset|reset|delete\s+from|db:wipe|prisma\s+migrate\s+reset)\b/i;
 
 export async function discoverDataCommands(projectRoot: string): Promise<DataCommand[]> {
-  const manifest = await readFile(path.join(projectRoot, "package.json"), "utf8").catch(() => "");
-  if (!manifest) return [];
+  /*
+    The root manifest and one level down.
 
-  let scripts: Record<string, string> = {};
-  try {
-    scripts = (JSON.parse(manifest) as { scripts?: Record<string, string> }).scripts ?? {};
-  } catch {
-    return [];
+    A service architecture puts its seed script in `services/auth/package.json`
+    - Examate's is exactly there - and reading only the root found none, so the
+      project looked as though it had no way to make data. That is the same
+      blind spot that made its connection strings invisible, and it mattered
+      more: a sandbox with no seed script is an empty database, which is worse
+      for testing than no sandbox at all.
+  */
+  const manifests: Array<{ cwd: string; text: string }> = [];
+
+  const root = await readFile(path.join(projectRoot, "package.json"), "utf8").catch(() => "");
+  if (root) manifests.push({ cwd: ".", text: root });
+
+  for (const dir of ["services", "apps", "packages"]) {
+    const entries = await readdir(path.join(projectRoot, dir), { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const rel = path.join(dir, entry.name);
+      const text = await readFile(path.join(projectRoot, rel, "package.json"), "utf8").catch(() => "");
+      if (text) manifests.push({ cwd: rel, text });
+    }
   }
 
+  if (!manifests.length) return [];
+
   const out: DataCommand[] = [];
+
+  for (const manifest of manifests) {
+    let scripts: Record<string, string> = {};
+    try {
+      scripts = (JSON.parse(manifest.text) as { scripts?: Record<string, string> }).scripts ?? {};
+    } catch {
+      continue;
+    }
+
+    collect(scripts, manifest.cwd, out);
+  }
+
+  return out;
+}
+
+/** Pull the data commands out of one manifest's scripts. */
+function collect(scripts: Record<string, string>, cwd: string, out: DataCommand[]): void {
   for (const [script, command] of Object.entries(scripts)) {
     if (typeof command !== "string") continue;
 
@@ -119,10 +155,12 @@ export async function discoverDataCommands(projectRoot: string): Promise<DataCom
       kind,
       script,
       command,
+      // Where it must be run from. A service's seed script resolves its own
+      // dependencies and its own dist output, and fails from the root.
+      cwd,
       destructive: kind === "reset" || DESTRUCTIVE_BODY.test(command),
     });
   }
-  return out;
 }
 
 /* ------------------------------------------------------------ target check */
@@ -141,8 +179,14 @@ const CONNECTION_VARS = [
   "DB_HOST",
 ];
 
-/** Hosts that are unambiguously this machine. */
-const LOCAL_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0|host\.docker\.internal|db|database|mongo|postgres|mysql)$/i;
+/**
+ * Hosts that are unambiguously this machine.
+ *
+ * Exported so the sandbox uses the same list. It had none, so it would have
+ * created a database on whatever server a project's connection string named -
+ * including a shared remote one - and handed it back as disposable.
+ */
+export const LOCAL_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0|host\.docker\.internal|db|database|mongo|postgres|mysql)$/i;
 
 /** Pull the host out of a connection string, whatever its scheme. */
 export function hostFromConnectionString(value: string): string | undefined {
@@ -173,7 +217,27 @@ export function hostFromConnectionString(value: string): string | undefined {
  * connection string carries credentials.
  */
 async function readProjectEnv(projectRoot: string): Promise<Record<string, string>> {
-  const files = [".env", ".env.local", ".env.development", ".env.development.local", ".env.test"];
+  const names = [".env", ".env.local", ".env.development", ".env.development.local", ".env.test"];
+
+  /*
+    One level down as well as the root.
+
+    A service architecture keeps its connection strings in `services/x/.env`,
+    not at the top, and reading only the root found nothing at all. It then
+    refused - the safe direction, but for the wrong reason: "I could not find a
+    database" rather than "that database is on a shared server". The difference
+    matters, because a root .env naming localhost while eight services point at
+    a remote host would have read as safe.
+  */
+  const files = [...names];
+  for (const dir of ["services", "apps", "packages"]) {
+    const entries = await readdir(path.join(projectRoot, dir), { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      for (const name of names) files.push(path.join(dir, entry.name, name));
+    }
+  }
+
   const env: Record<string, string> = {};
 
   for (const file of files) {
@@ -466,7 +530,7 @@ export async function prepareData(opts: PrepareOptions): Promise<PreparedData> {
     log(`running ${command.script}: ${command.command}`);
     const { exitCode, output } = await runCommand(
       command.command,
-      opts.profile.project.root,
+      path.join(opts.profile.project.root, command.cwd),
       opts.timeoutMs ?? 180_000,
       opts.sandboxEnv,
     );

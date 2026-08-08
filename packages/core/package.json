@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "mongodb-memory-server": "^11.2.0",
     "typescript": "^5.7.2"
   }
 }

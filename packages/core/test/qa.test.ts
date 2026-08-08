@@ -600,3 +600,155 @@ test("an account is closed the way it was opened", async () => {
   // worse than one reported as left behind, because only the second is cleaned.
   assert.match(source, /const stillWorks = await canLogIn/);
 });
+
+/* ------------------------------------------------- shared infrastructure */
+
+test("a remote connection string never yields a remote sandbox", async () => {
+  /*
+    The provisioning path had no host check at all: it created a database
+    beside the project's own, on whatever server that string named. For a
+    service architecture pointing at a shared remote database that meant
+    creating one ON the shared server, then handing it back as a sandbox - at
+    which point provenance granted mutating mode on the grounds that Clarvis
+    had made it. Worse than no sandbox: the guard exists to keep writes off
+    shared infrastructure, and that routed them there while reporting
+    containment.
+
+    Two things now prevent it. The rung that reads the project's connection
+    string refuses a host that is not this machine, and the rung tried before
+    it does not read that string at all - it starts a server of its own. So the
+    remote host is never even contacted.
+
+    Spawns a real mongod, so it is skipped when the binary is not already
+    cached rather than downloading 76MB inside a unit suite.
+  */
+  const { existsSync } = await import("node:fs");
+  const cached = existsSync(new URL("../../../node_modules/.cache/mongodb-memory-server", import.meta.url));
+  if (!cached) {
+    console.log("    (skipped: the mongod binary is not cached, and a unit suite must work offline)");
+    return;
+  }
+
+  const { provisionSandbox } = await import("../src/sandbox.ts");
+  const { decideGuard } = await import("../src/guard.ts");
+  const dir = await scratch();
+  let sandbox: Awaited<ReturnType<typeof provisionSandbox>>["sandbox"];
+
+  try {
+    await writeFile(
+      path.join(dir, ".env"),
+      "MONGO_URI=mongodb://user:pw@203.0.113.10:27017/app?authSource=admin\n",
+      "utf8",
+    );
+
+    const profile = profileWith({
+      project: { name: "svc", root: dir },
+      // The worst case: a human has vouched for the target as well.
+      data: { disposable: true, safeTargets: ["*"] },
+    });
+
+    const result = await provisionSandbox({ profile, runId: "t1", stateDir: dir });
+    sandbox = result.sandbox;
+
+    assert.ok(sandbox, `nothing was provisioned: ${JSON.stringify(result.attempts)}`);
+    assert.match(
+      sandbox!.uri,
+      /127\.0\.0\.1|localhost/,
+      "the sandbox must be on this machine whatever the project's own string says",
+    );
+    assert.ok(!sandbox!.uri.includes("203.0.113.10"), "the remote host must never appear in it");
+    assert.equal(decideGuard(profile, undefined, sandbox).mode, "mutating");
+  } finally {
+    // In `finally`: a failed assertion above used to leave a mongod running,
+    // which hung the whole suite rather than failing one test.
+    await sandbox?.teardown().catch(() => {});
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("connection strings are found in a service architecture, not just the root", async () => {
+  /*
+    Examate keeps its connection strings in services/<name>/.env. Reading only
+    the root found none, and the check then refused for the wrong reason - "I
+    could not find a database" rather than "that database is shared". The
+    difference is not cosmetic: a root .env naming localhost while eight
+    services pointed at a remote host would have read as safe.
+  */
+  const { checkDataTarget } = await import("../src/fixtures.ts");
+  const dir = await scratch();
+
+  try {
+    await mkdir(path.join(dir, "services", "auth"), { recursive: true });
+    await writeFile(path.join(dir, ".env"), "DATABASE_URL=postgres://localhost:5432/local\n", "utf8");
+    await writeFile(
+      path.join(dir, "services", "auth", ".env"),
+      "MONGO_URI=mongodb://u:p@203.0.113.10:27017/shared?authSource=admin\n",
+      "utf8",
+    );
+
+    const check = await checkDataTarget(profileWith({ project: { name: "svc", root: dir } }));
+
+    assert.equal(check.ok, false, "a remote service database must be seen");
+    assert.equal(check.host, "203.0.113.10", "and named, so the refusal is about the right thing");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------ a database of our own */
+
+test("the rung that needs nothing installed is tried first", async () => {
+  /*
+    Every other rung depends on something already being there: a running
+    server, a Docker daemon, a compose file. On a machine with none of them -
+    the common case - mutating axes never ran at all, so the entire
+    authenticated half of every application went untested.
+
+    Asserted on the source rather than by provisioning one: starting a real
+    mongod takes a few hundred milliseconds and a 76MB binary on a fresh
+    machine, which does not belong in a suite that runs in two seconds and must
+    work offline. The smoke run provisions one for real.
+  */
+  const source = await readFile(new URL("../src/sandbox.ts", import.meta.url), "utf8");
+
+  const inProcess = source.indexOf("rung 0: a server we start ourselves");
+  const compose = source.indexOf("rung 1: the project's own compose definition");
+
+  assert.ok(inProcess > 0, "an in-process rung must exist");
+  assert.ok(inProcess < compose, "and be attempted before the rungs with prerequisites");
+  assert.match(source, /provisionedBy: "in-process"/);
+});
+
+test("a seed script in a service is found, and run from its own directory", async () => {
+  /*
+    A service architecture puts its seed script in services/<name>/package.json
+    - Examate's is exactly there - and reading only the root found none, so the
+    project looked as though it had no way to make data. Worse than the env
+    blind spot: a sandbox with no seed is an empty database, which tests less
+    than no sandbox at all.
+  */
+  const { discoverDataCommands } = await import("../src/fixtures.ts");
+  const dir = await scratch();
+
+  try {
+    await mkdir(path.join(dir, "services", "auth"), { recursive: true });
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }), "utf8");
+    await writeFile(
+      path.join(dir, "services", "auth", "package.json"),
+      JSON.stringify({ scripts: { seed: "node seedUsers.js" } }),
+      "utf8",
+    );
+
+    const commands = await discoverDataCommands(dir);
+    const seed = commands.find((c) => c.kind === "seed");
+
+    assert.ok(seed, "a service's seed script must be found");
+    assert.equal(
+      seed!.cwd,
+      path.join("services", "auth"),
+      "and run from its own directory - it resolves its own dependencies and dist output",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { readFile, writeFile, rm, mkdir } from "node:fs/promises";
+import { readFile, readdir, writeFile, rm, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { hostFromConnectionString } from "./fixtures.ts";
+import { LOCAL_HOSTS, hostFromConnectionString } from "./fixtures.ts";
 import type { Profile } from "./types.ts";
 
 /**
@@ -56,7 +56,7 @@ export const SANDBOX_MARKER = "clarvis_sbx";
 export interface Sandbox {
   engine: Engine;
   /** How it was obtained. This is what makes it disposable. */
-  provisionedBy: "compose" | "fresh-database" | "container";
+  provisionedBy: "compose" | "fresh-database" | "container" | "in-process";
   /** Connection string the application must use. */
   uri: string;
   /** Environment the boot command needs so the app connects here. */
@@ -193,7 +193,19 @@ const CONNECTION_VARS = [
 ];
 
 async function projectConnections(projectRoot: string): Promise<Array<{ variable: string; uri: string }>> {
-  const files = [".env", ".env.local", ".env.development", ".env.development.local", ".env.test"];
+  const names = [".env", ".env.local", ".env.development", ".env.development.local", ".env.test"];
+
+  // One level down too: a service architecture keeps these in services/x/.env,
+  // and reading only the root meant a monorepo looked like it used no database.
+  const files = [...names];
+  for (const dir of ["services", "apps", "packages"]) {
+    const entries = await readdir(path.join(projectRoot, dir), { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      for (const name of names) files.push(path.join(dir, entry.name, name));
+    }
+  }
+
   const found = new Map<string, string>();
 
   for (const file of files) {
@@ -352,10 +364,44 @@ async function freshDatabase(opts: {
   uri: string;
   name: string;
   stateDir: string;
+  forbiddenHosts?: string[];
   log: (line: string) => void;
 }): Promise<{ uri: string; evidence: string } | { failed: string }> {
   const host = hostFromConnectionString(opts.uri);
   if (!host) return { failed: "the connection string names no host" };
+
+  /*
+    The server must be this machine. Checked here, before anything is even
+    connected to.
+
+    This rung creates a database beside the project's own, on the same server
+    the project's connection string names - which is only safe when that server
+    is local. Nothing checked, so a project whose services point at a shared
+    remote database would have had a database created ON that server and handed
+    back as a sandbox. Provenance would then have granted mutating mode against
+    it, on the grounds that Clarvis made it.
+
+    That is worse than having no sandbox at all: the guard's whole purpose is
+    to keep writes off shared infrastructure, and this would have routed them
+    there while reporting that it had contained them. A remote host means this
+    rung does not apply, and a container - which is local by construction - is
+    the fallback.
+  */
+  const forbidden = opts.forbiddenHosts?.find((pattern) => {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
+    return new RegExp(`^${escaped}$`, "i").test(host);
+  });
+  if (forbidden) {
+    return { failed: `${host} matches forbidden host pattern "${forbidden}"` };
+  }
+
+  if (!LOCAL_HOSTS.test(host)) {
+    return {
+      failed:
+        `${host} is not this machine. A database created there would be on shared infrastructure, ` +
+        `however disposable its name looked`,
+    };
+  }
 
   const port = portOf(opts.uri, opts.engine);
   if (!(await reachable(host, port))) {
@@ -401,6 +447,67 @@ async function freshDatabase(opts: {
     uri: sandboxUri,
     evidence: `database "${opts.name}" created on the ${opts.engine} server at ${host}:${port}`,
   };
+}
+
+/* ----------------------------------------------- rung 0: in-process server */
+
+/**
+ * A real database server, started by this process, needing nothing installed.
+ *
+ * The other rungs all depend on something being there already: a running
+ * server, a Docker daemon, a compose file. On a machine with none of them -
+ * which is the common case, and was the case here - mutating axes simply never
+ * ran, and the whole authenticated half of every application stayed untested.
+ *
+ * This starts a genuine mongod on a port the OS picks. Not an emulator: the
+ * binary is the same one the project would run, so behaviour that depends on
+ * real indexes, real aggregation or real write concerns behaves the same way.
+ * It costs a one-off download and then a few hundred milliseconds per run.
+ *
+ * Nothing is installed on the machine in the sense that matters - there is no
+ * daemon to manage, no service to remember to stop, and removing the package
+ * removes it entirely. The data lives in a temp directory that goes when the
+ * process does.
+ */
+async function inProcessServer(opts: {
+  engine: Engine;
+  name: string;
+  stateDir: string;
+  log: (line: string) => void;
+}): Promise<{ uri: string; evidence: string; stop: () => Promise<void> } | { failed: string }> {
+  // Only MongoDB for now: the equivalent for Postgres exists but is a separate
+  // dependency, and claiming support for an engine nothing was tested against
+  // would be worse than saying it is not handled.
+  if (opts.engine !== "mongodb") {
+    return { failed: `no in-process server is wired up for ${opts.engine}` };
+  }
+
+  try {
+    const { MongoMemoryServer } = await import("mongodb-memory-server");
+    const server = await MongoMemoryServer.create();
+    const uri = server.getUri();
+
+    await writeJournal(opts.stateDir, {
+      kind: "database",
+      engine: opts.engine,
+      name: opts.name,
+      createdAt: new Date().toISOString(),
+    });
+
+    opts.log(`started a real mongod in-process at ${uri.replace(/\/\/[^@]*@/, "//")}`);
+
+    return {
+      uri: withDatabase(uri, opts.name),
+      evidence: "a mongod started by this run, in a temp directory, stopped when it ends",
+      stop: async () => {
+        await server.stop().catch(() => {});
+      },
+    };
+  } catch (e) {
+    return {
+      failed: `could not start an in-process mongod: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
 }
 
 /* -------------------------------------------------------- rung 1: compose */
@@ -479,6 +586,32 @@ export async function provisionSandbox(opts: ProvisionOptions): Promise<Provisio
     return { attempts, remedy: "The sandbox name collided with the project's own database. Refusing." };
   }
 
+  /* --- rung 0: a server we start ourselves -------------------------------- */
+
+  // First, because it is the only rung with no prerequisite at all. A project
+  // that has a compose file or a running server still gets a database of our
+  // own rather than one beside theirs, which is the safer default.
+  const inProcess = await inProcessServer({ engine, name, stateDir: opts.stateDir, log });
+  if ("uri" in inProcess) {
+    return {
+      attempts,
+      sandbox: {
+        engine,
+        provisionedBy: "in-process",
+        uri: inProcess.uri,
+        env: Object.fromEntries(connections.map((c) => [c.variable, inProcess.uri])),
+        variables: connections.map((c) => c.variable),
+        evidence: inProcess.evidence,
+        teardown: async () => {
+          await inProcess.stop();
+          await clearJournal(opts.stateDir);
+          log("stopped the in-process mongod");
+        },
+      },
+    };
+  }
+  attempts.push({ approach: "an in-process mongod", outcome: inProcess.failed });
+
   /* --- rung 1: the project's own compose definition ---------------------- */
 
   const compose = await composeDatabaseService(opts.profile.project.root);
@@ -504,7 +637,14 @@ export async function provisionSandbox(opts: ProvisionOptions): Promise<Provisio
       } else {
         log(`started "${compose.service}" from ${compose.file}`);
         // The server is the project's own; the DATABASE on it is still ours.
-        const fresh = await freshDatabase({ engine, uri: primary.uri, name, stateDir: opts.stateDir, log });
+        const fresh = await freshDatabase({
+          engine,
+          uri: primary.uri,
+          name,
+          stateDir: opts.stateDir,
+          forbiddenHosts: opts.profile.data.forbiddenHosts,
+          log,
+        });
         if ("uri" in fresh) {
           return {
             attempts,
@@ -527,7 +667,14 @@ export async function provisionSandbox(opts: ProvisionOptions): Promise<Provisio
 
   /* --- rung 2: a server already running here ----------------------------- */
 
-  const fresh = await freshDatabase({ engine, uri: primary.uri, name, stateDir: opts.stateDir, log });
+  const fresh = await freshDatabase({
+    engine,
+    uri: primary.uri,
+    name,
+    stateDir: opts.stateDir,
+    forbiddenHosts: opts.profile.data.forbiddenHosts,
+    log,
+  });
   if ("uri" in fresh) {
     return {
       attempts,
