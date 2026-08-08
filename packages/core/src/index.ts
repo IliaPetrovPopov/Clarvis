@@ -49,3 +49,4 @@ export * from "./pipeline.ts";
 export * from "./agents/stubRunner.ts";
 export * from "./lessons.ts";
 export * from "./enrol.ts";
+export * from "./populate.ts";
