@@ -10,7 +10,9 @@ import {
   decideGuard,
   applyGuardToAxes,
   provisionSandbox,
+  sweepFixtures,
   enrolRole,
+  withdrawRole,
   loadLessons,
   saveLessons,
   learnFromRun,
@@ -108,6 +110,7 @@ import {
   type Profile,
   type Run,
   type Sandbox,
+  type AuthRole,
 } from "@clarvis/core";
 import { serveUi } from "./ui.ts";
 import { describeSmoke, smoke } from "./smoke.ts";
@@ -1447,8 +1450,26 @@ async function runCommand(opts: {
   // Recorded whether it worked or not: a reader cannot otherwise tell a stage
   // that succeeded from one that never ran.
   let sandboxRecord: NonNullable<Run["preparation"]>["sandbox"];
+  /** Every record this run created, by the identifier a human could search for. */
+  const createdFixtures: string[] = [];
+  /** The account this run registered, if any, so it can be closed afterwards. */
+  let enrolledRole: AuthRole | undefined;
 
-  if (wantsMutating && preflight.mode === "read-only" && opts.sandbox !== false) {
+  /*
+    A sandbox is preferred even when the guard would already allow writes.
+
+    This used to provision only when the guard was about to refuse, which had
+    it exactly backwards: a project someone had marked `disposable: true` never
+    got a sandbox, so every account and record the fleet created went into
+    their real development database and stayed there. Being allowed to write
+    somewhere is not a reason to write there.
+
+    Consent to run mutating tests against seeded data is not consent to be left
+    with permanent test accounts. So a database of our own is always the first
+    choice, and the vouched-for one is the fallback - used only when no sandbox
+    can be made, and said loudly when it is.
+  */
+  if (wantsMutating && opts.sandbox !== false) {
     await markStage(projectRoot, run, "sandbox");
 
     const provisioned = await provisionSandbox({
@@ -1482,6 +1503,19 @@ async function runCommand(opts: {
     } else {
       for (const a of provisioned.attempts) console.log(`  sandbox  ${a.approach}: ${a.outcome}`);
       if (provisioned.remedy) console.log(`  sandbox  ${provisioned.remedy}`);
+
+      // No sandbox, but the guard may still permit writes because a human
+      // vouched for this target. That is a materially different situation and
+      // must not read the same in the report.
+      if (preflight.mode === "mutating") {
+        const warning =
+          `No disposable database could be created, so anything this run creates goes into ` +
+          `${preflight.target} - a real database somebody marked writable - and survives the run ` +
+          `unless its teardown command removes it.`;
+        console.log(`  sandbox  WRITING TO A REAL DATABASE`);
+        console.log(`           ${warning}`);
+        run.truncation!.push(warning);
+      }
     }
   }
 
@@ -1716,6 +1750,8 @@ async function runCommand(opts: {
 
     if (enrolled.ok && enrolled.role) {
       profile.auth = { ...profile.auth, roles: [...profile.auth.roles, enrolled.role] };
+      createdFixtures.push(enrolled.role.username);
+      enrolledRole = enrolled.role;
       run.truncation!.push(
         `No credential was found, so an account was created at ${enrolled.via}. It has whatever ` +
           `role signup grants - any role above that is still untested.`,
@@ -2123,6 +2159,70 @@ async function runCommand(opts: {
 
   run.findings = applied.reported;
   await saveLedger(projectRoot, recordRun(ledgerBefore, run));
+
+  /* --- account for anything this run created ------------------------------- */
+
+  if (createdFixtures.length) {
+    // A sandbox is dropped whole when the run ends, so nothing inside it needs
+    // removing individually. A real database is not, and then the only honest
+    // options are the project's own teardown or telling someone exactly what
+    // is still there.
+    const droppedWithSandbox = Boolean(sandbox);
+
+    let swept = droppedWithSandbox
+      ? { created: createdFixtures, leaked: [] as string[], teardownRan: false, warnings: [] as string[], prefix: "" }
+      : await sweepFixtures({
+          profile,
+          created: createdFixtures,
+          log: (l) => console.log(`  sweep    ${l}`),
+        });
+
+    /*
+      An account made through the application is closed through it too.
+
+      Only where it would otherwise persist. Inside a sandbox the whole
+      database goes, so closing one account first is work for nothing; against
+      a real database it is the difference between leaving residue and not.
+    */
+    if (!droppedWithSandbox && enrolledRole && swept.leaked.includes(enrolledRole.username)) {
+      const withdrawn = await withdrawRole({
+        profile,
+        role: enrolledRole,
+        storageState: sessions[enrolledRole.key],
+        log: (l) => console.log(`  sweep    ${l}`),
+      });
+
+      if (withdrawn.ok) {
+        swept = { ...swept, leaked: swept.leaked.filter((l) => l !== enrolledRole!.username) };
+      } else {
+        console.log(`  sweep    ${withdrawn.reason}`);
+      }
+    }
+
+    run.preparation = {
+      ...run.preparation,
+      fixtures: {
+        created: createdFixtures,
+        removed: droppedWithSandbox ? createdFixtures : createdFixtures.filter((c) => !swept.leaked.includes(c)),
+        wroteTo: droppedWithSandbox ? "sandbox" : "real-database",
+        note: droppedWithSandbox
+          ? "Created inside a database made for this run, which is dropped with it."
+          : swept.teardownRan
+            ? "Removed by the project's own teardown command."
+            : `Still present in ${decision.target}. Every identifier carries the fixture prefix.`,
+      },
+    };
+
+    for (const w of swept.warnings) run.truncation!.push(w);
+
+    if (!droppedWithSandbox && swept.leaked.length) {
+      const left =
+        `${swept.leaked.length} record(s) created by this run remain in ${decision.target}: ` +
+        `${swept.leaked.join(", ")}`;
+      console.log(`  sweep    ${left}`);
+      run.truncation!.push(left);
+    }
+  }
 
   /* --- what the author got wrong, kept for next time ----------------------- */
 

@@ -313,3 +313,117 @@ async function canLogIn(browser: Browser, profile: Profile, role: AuthRole): Pro
     await context.close().catch(() => {});
   }
 }
+
+/* ------------------------------------------------------------- withdrawal */
+
+/** Where an account is usually closed from. */
+const ACCOUNT_PATHS = ["/settings", "/account", "/settings/account", "/profile", "/edit-profile"];
+
+/** Controls that close an account, most explicit first. */
+const DELETE_CONTROLS = [
+  'button:has-text("Delete account")',
+  'button:has-text("Delete my account")',
+  'button:has-text("Close account")',
+  'button:has-text("Delete Account")',
+  'a:has-text("Delete account")',
+];
+
+/** Confirmations that follow one. */
+const CONFIRM_CONTROLS = [
+  'button:has-text("Delete")',
+  'button:has-text("Confirm")',
+  'button:has-text("Yes")',
+  'button[type="submit"]',
+];
+
+/**
+ * Close an account this run created, through the application's own flow.
+ *
+ * Symmetric with how it was made: the app knows what deleting a user entails -
+ * the sessions to invalidate, the owned records to cascade or reassign - and a
+ * DELETE against a table does not.
+ *
+ * Expected to fail often, and that is fine. A delete-account flow is behind a
+ * confirmation more often than not, sometimes wants the password again, and
+ * frequently does not exist. What matters is that a failure is reported as one:
+ * an account reported as removed and still sitting in somebody's database is
+ * worse than an account reported as left behind, because only the second gets
+ * cleaned up.
+ *
+ * So it is proven the same way enrolment is - by outcome. The account is gone
+ * only if it can no longer log in.
+ */
+export async function withdrawRole(opts: {
+  profile: Profile;
+  role: AuthRole;
+  storageState?: string;
+  browser?: Browser;
+  log?: (line: string) => void;
+}): Promise<{ ok: boolean; via?: string; reason?: string }> {
+  const log = opts.log ?? (() => {});
+  const base = opts.profile.boot.url.replace(/\/$/, "");
+  const browser = opts.browser ?? (await chromium.launch());
+  const ownsBrowser = !opts.browser;
+
+  try {
+    for (const route of ACCOUNT_PATHS) {
+      const context = await browser.newContext({
+        ignoreHTTPSErrors: true,
+        ...(opts.storageState ? { storageState: opts.storageState } : {}),
+      });
+
+      try {
+        const page = await context.newPage();
+        const response = await page.goto(`${base}${route}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 20_000,
+        });
+        if (response && response.status() >= 400) continue;
+        await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+
+        const control = await firstVisible(page, DELETE_CONTROLS);
+        if (!control) continue;
+
+        log(`closing the account from ${route}`);
+        await control.click();
+        await page.waitForTimeout(600);
+
+        // Re-entering the password is a common second step.
+        const password = page.locator(PASSWORD).first();
+        if (await password.isVisible().catch(() => false)) {
+          await password.fill(opts.role.password);
+        }
+
+        const confirm = await firstVisible(page, CONFIRM_CONTROLS);
+        if (confirm) await confirm.click();
+        await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+
+        await context.close().catch(() => {});
+
+        // The only proof that counts.
+        const stillWorks = await canLogIn(browser, opts.profile, opts.role);
+        if (!stillWorks) {
+          log(`${opts.role.username} can no longer log in`);
+          return { ok: true, via: route };
+        }
+
+        return {
+          ok: false,
+          via: route,
+          reason: `Used the delete control at ${route}, but the account can still log in.`,
+        };
+      } catch {
+        await context.close().catch(() => {});
+      }
+    }
+
+    return {
+      ok: false,
+      reason:
+        `No delete-account control was found. Tried ${ACCOUNT_PATHS.join(", ")}. ` +
+        `The account remains and carries the fixture prefix.`,
+    };
+  } finally {
+    if (ownsBrowser) await browser.close().catch(() => {});
+  }
+}

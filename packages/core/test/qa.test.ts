@@ -554,3 +554,49 @@ test("creating an account is a write, so the guard decides", async () => {
   assert.match(result.reason ?? "", /read-only/);
   assert.match(result.reason ?? "", /behind a login stays untested/);
 });
+
+test("being allowed to write somewhere is not a reason to write there", async () => {
+  /*
+    A project marked `disposable: true` used to skip provisioning entirely,
+    because a sandbox was only attempted when the guard was about to refuse.
+    So every account and record the fleet created went into somebody's real
+    development database and stayed there.
+
+    Consent to run mutating tests against seeded data is not consent to be left
+    with permanent test accounts. This pins the ordering: a database of our own
+    is the first choice, and a vouched-for one is the fallback.
+  */
+  const source = await readFile(new URL("../../cli/src/main.ts", import.meta.url), "utf8");
+
+  assert.ok(
+    /if \(wantsMutating && opts\.sandbox !== false\)/.test(source),
+    "provisioning must not be conditional on the guard being about to refuse",
+  );
+  assert.ok(
+    !/wantsMutating && preflight\.mode === "read-only"/.test(source),
+    "the old condition skipped the sandbox for exactly the projects that had a real database",
+  );
+  assert.match(
+    source,
+    /WRITING TO A REAL DATABASE/,
+    "falling back to a real database must be impossible to miss in the report",
+  );
+});
+
+test("what a run creates is recorded by name, and where it went", async () => {
+  // Residue nobody can name is residue nobody removes.
+  const source = await readFile(new URL("../src/types.ts", import.meta.url), "utf8");
+  assert.match(source, /fixtures\?: \{/);
+  assert.match(source, /wroteTo: "sandbox" \| "real-database" \| "none"/);
+});
+
+test("an account is closed the way it was opened", async () => {
+  // Through the application, not a DELETE against a table: the app knows what
+  // deleting a user entails - sessions to invalidate, owned records to cascade.
+  const source = await readFile(new URL("../src/enrol.ts", import.meta.url), "utf8");
+
+  assert.match(source, /export async function withdrawRole/);
+  // Proven by outcome. An account reported as removed and still present is
+  // worse than one reported as left behind, because only the second is cleaned.
+  assert.match(source, /const stillWorks = await canLogIn/);
+});

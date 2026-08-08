@@ -403,6 +403,21 @@ export interface Run {
       routesBehindAuth: number;
       discoveredBy?: string[];
     };
+    /**
+     * Records this run created, and whether they were removed.
+     *
+     * Kept because a test account left in somebody's database is residue with
+     * a name, and residue nobody can name is residue nobody removes. Every
+     * entry carries the fixture prefix, so a human sweeping by hand has an
+     * exact string to search for.
+     */
+    fixtures?: {
+      created: string[];
+      removed: string[];
+      /** Where they went. A sandbox is dropped; a real database is not. */
+      wroteTo: "sandbox" | "real-database" | "none";
+      note?: string;
+    };
     data?: {
       seeded: boolean;
       commandsRun?: string[];

@@ -225,6 +225,20 @@ Creating an account is a write, so the guard decides. The identity carries the
 fixture prefix and a random tail, and it is proven by logging in with it
 afterwards rather than by the form appearing to submit.
 
+**It goes in a database of our own, not yours.** Provisioning is attempted
+whenever a mutating axis is wanted - not only when the guard was about to
+refuse, which is what it used to do, and which meant a project marked
+`disposable: true` never got a sandbox and had test accounts written into its
+real development database instead. Being allowed to write somewhere is not a
+reason to write there: consenting to mutating tests against seeded data is not
+consenting to permanent test accounts.
+
+Where no sandbox can be made and the guard still permits writes, the run says
+`WRITING TO A REAL DATABASE`, records every identifier it created, and closes
+the account afterwards through the application's own delete-account flow -
+proven by the account no longer being able to log in. What could not be removed
+is listed by name, because residue nobody can name is residue nobody removes.
+
 **Signup grants whatever role signup grants**, which is the lowest one. An admin
 cannot be made this way, and the run says so rather than guessing at an
 elevation route and quietly testing the wrong thing.
